@@ -1,0 +1,258 @@
+--[[
+	=====================================================================
+	Addon      : Neutral Zone
+	Link       : https://www.moddb.com/mods/stalker-anomaly/addons/neutral-zone
+	Author     : party_50
+	Date       : 07.02.2024
+	Last Edit  : 09.02.2024
+	=====================================================================
+--]]
+
+
+local NEUTRAL_ZONES = {}
+
+local warning_sent = {}
+local crime_timer = {}
+local warning_timer = 0
+
+
+function on_option_change()
+	NEUTRAL_ZONES = {}
+	if z_neutral_zone_mcm.get_config("yantar_bunker") then
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "l08_yantar",
+			smart_name = "yan_smart_terrain_6_4",
+			radius = 100,
+			faction = "ecolog",
+			cooldown = 8,
+			warn = true,
+			warn_sender = "yan_stalker_sakharov",
+			warn_text = "st_yan_sakharov_neutral_zone_warning"
+		})
+	end
+	if z_neutral_zone_mcm.get_config("jupiter_bunker") then
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "jupiter",
+			smart_name = "jup_b41",
+			radius = 50,
+			faction = "ecolog",
+			cooldown = 8
+		})
+	end
+	if z_neutral_zone_mcm.get_config("rostok") then
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "l05_bar",
+			smart_name = "bar_dolg_bunker",
+			radius = 160,
+			faction = "dolg",
+			cooldown = 8,
+			warn = true,
+			warn_sender = "bar_duty_security_squad_leader",
+			warn_text = "st_bar_duty_neutral_zone_warning"
+		})
+	end
+	if z_neutral_zone_mcm.get_config("yanov") then
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "jupiter",
+			smart_name = "jup_a6",
+			radius = 50,
+			faction = "freedom",
+			cooldown = 8
+		})
+	end
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "l07_military",
+			smart_name = "mil_smart_terrain_7_7",
+			radius = 5000,
+			faction = "freedom",
+			cooldown = 8
+		})
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "k00_marsh",
+			smart_name = "mar_smart_terrain_base",
+			radius = 5000,
+			faction = "csky",
+			cooldown = 8
+		})
+		table.insert(NEUTRAL_ZONES, {
+			level_name = "zaton",
+			smart_name = "zat_stalker_base_smart",
+			radius = 50,
+			faction = "stalker",
+			cooldown = 8
+		})
+end
+
+function are_npc_enemies_to_faction(npc1, npc2, faction)
+	return game_relations.is_factions_enemies(character_community(npc1), faction)
+		or game_relations.is_factions_enemies(character_community(npc2), faction)
+end
+
+function are_npc_within_neutral_zone(npc1, npc2, zone)
+	local smart = SIMBOARD.smarts_by_names[zone.smart_name]
+	local npc1_dist = smart.position:distance_to(npc1:position());
+	local npc2_dist = smart.position:distance_to(npc2:position());
+	
+	return npc1_dist < zone.radius or npc2_dist < zone.radius
+end
+
+function npc_on_before_hit(npc, shit, bone_id, flags)
+	if shit.draftsman:id() ~= db.actor:id() then
+		return
+	end
+
+	if character_community(npc) == "arena_enemy" then
+		return
+	end
+
+	for _, zone in ipairs(NEUTRAL_ZONES) do
+		if level.name() ~= zone.level_name then
+			goto continue
+		end
+		if are_npc_enemies_to_faction(npc, shit.draftsman, zone.faction) then
+			goto continue
+		end
+		
+		if are_npc_within_neutral_zone(npc, shit.draftsman, zone) then
+			crime_timer[zone.smart_name] = game.get_game_time()
+		end
+		
+		::continue::
+	end
+end
+
+function on_enemy_eval(obj, enemy, flags)
+	if character_community(obj) == "arena_enemy" then
+		return
+	end
+	
+	for _, zone in ipairs(NEUTRAL_ZONES) do
+		if level.name() ~= zone.level_name then
+			goto continue
+		end
+		if are_npc_enemies_to_faction(obj, enemy, zone.faction) then
+			goto continue
+		end
+		
+		if enemy:id() == db.actor:id() and crime_timer[zone.smart_name] then
+			if game.get_game_time():diffSec(crime_timer[zone.smart_name]) < 60 * 60 * zone.cooldown then
+				if are_npc_within_neutral_zone(obj, enemy, zone) then
+					crime_timer[zone.smart_name] = game.get_game_time()
+				end
+				goto continue
+			else
+				crime_timer[zone.smart_name] = nil
+			end
+		end
+		
+		if are_npc_within_neutral_zone(obj, enemy, zone) then
+			flags.override = true
+			flags.result = false
+		end
+		
+		::continue::
+	end
+end
+
+gameplay_disguise.expose_actor = function(npc, comm, is_enem)
+	gameplay_disguise.set_msg("st_disguse_actor_exposed",gameplay_disguise.default_comm)
+	gameplay_disguise.set_comm(gameplay_disguise.default_comm)
+	
+	-- News
+	if npc and (not gameplay_disguise.inside_disguise_zone()) then
+		local str = ""
+		local flags = {}
+		on_enemy_eval(npc, db.actor, flags)
+		if is_enem and flags.result ~= false then
+			str = "st_news_disguse_enemy_expose_"
+		else
+			str = "st_news_disguse_natural_expose_"
+			if (comm ~= gameplay_disguise.default_comm) then
+				if (ui_options.get("alife/general/dynamic_relations") == true)
+				and (not game_relations.is_faction_unaffected(comm))
+				and (not game_relations.is_faction_unaffected(gameplay_disguise.default_comm))
+				and (not game_relations.is_faction_pair_unaffected(comm, gameplay_disguise.default_comm))
+				then
+					game_relations.change_faction_relations(comm, gameplay_disguise.default_comm, gameplay_disguise.relation_hit)
+				end
+				game_relations.change_factions_community_num(comm, gameplay_disguise.default_comm, gameplay_disguise.goodwill_hit)
+				game_statistics.increment_reputation(gameplay_disguise.reputation_hit)
+			end
+		end
+		local msg = game.translate_string(str .. tostring(math.random(1,4)))
+		local comm_name = ", " .. game.translate_string("st_dyn_news_comm_" .. comm .. "_6")
+		local se = strformat("%s%s", npc:character_name(), string.find(comm_name,"_6") and comm_name or "")
+		dynamic_news_helper.send_tip(msg,se,2,nil,npc:character_icon(),nil,"npc")
+	end
+	
+	-- long-term memory
+	for k,v in pairs(gameplay_disguise.npcs_memory) do
+		if v then
+			v.memo = v.memo * gameplay_disguise.memory_multi
+		end
+	end
+	
+	gameplay_disguise.is_disguised = nil
+end
+
+function send_warning(sender, text)
+	local se_npc = get_story_se_object(sender)
+	if se_npc and se_npc:alive() then
+		local msg = game.translate_string(text)
+		dynamic_news_helper.send_tip(msg, se_npc:character_name(), 0, 10, se_npc:character_icon(), "news", "npc")
+	end
+end
+ 
+function actor_on_update()
+	local tg = time_global()
+	if warning_timer > tg then
+		return
+	end
+	warning_timer = tg + 1000
+	
+	-- Following code is executed once per second
+	
+	for _, zone in ipairs(NEUTRAL_ZONES) do
+		if level.name() ~= zone.level_name then
+			goto continue
+		end
+		if warning_sent[zone.smart_name] or not zone.warn then
+			goto continue
+		end
+		
+		local smart = SIMBOARD.smarts_by_names[zone.smart_name]
+		local dist = smart.position:distance_to(db.actor:position())
+		
+		if dist > zone.radius and dist < zone.radius + 50 then
+			local actor_community = character_community(db.actor)
+			if not game_relations.is_factions_enemies(actor_community, zone.faction) and actor_community ~= "actor_" .. zone.faction then
+				send_warning(zone.warn_sender, zone.warn_text)
+			end
+			warning_sent[zone.smart_name] = true
+		elseif dist < zone.radius then
+			warning_sent[zone.smart_name] = true
+		end
+		
+		::continue::
+	end
+end
+
+function save_state(m_data)
+	m_data.neutral_zone_warning_sent = warning_sent
+	m_data.neutral_zone_crime_timer = crime_timer
+end
+
+function load_state(m_data)
+	warning_sent = type(m_data.neutral_zone_warning_sent) == "table" and m_data.neutral_zone_warning_sent or {}
+	crime_timer = type(m_data.neutral_zone_crime_timer) == "table" and m_data.neutral_zone_crime_timer or {}
+end
+
+function on_game_start()
+	on_option_change()
+	RegisterScriptCallback("on_option_change", on_option_change)
+	RegisterScriptCallback("npc_on_before_hit", npc_on_before_hit)
+	RegisterScriptCallback("on_enemy_eval", on_enemy_eval)
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
+end

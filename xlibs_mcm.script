@@ -1,0 +1,22 @@
+--- xlibs_mcm: MCM info page for xlibs
+
+function on_mcm_load()
+    return {
+        id = "xlibs",
+        sh = true,
+        gr = {
+            { id = "title", type = "slide", link = "xlibs_mcm_banner",
+                text = "ui_mcm_xlibs_title", size = {512, 50}, spacing = 20 },
+            { id = "desc", type = "desc", text = "ui_mcm_xlibs_desc" },
+            { id = "div_version", type = "line" },
+            { id = "version", type = "desc", text = "ui_mcm_xlibs_title",
+                ui_hook_functor = { xlibs_mcm.set_version_text }, clr = {255, 212, 201, 168} },
+        },
+    }
+end
+
+--- @param _anchor table MCM anchor element (unused, required by MCM callback signature)
+--- @param handlers table MCM handlers with desc text widget
+function set_version_text(_anchor, handlers)
+    handlers.desc:SetText(xlibs.get_version())
+end

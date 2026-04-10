@@ -1,0 +1,31 @@
+-- If you don't use MCM, change your defaults from here
+local defaults = {
+	["yantar_bunker"] = true,
+	["jupiter_bunker"] = true,
+	["rostok"] = true,
+	["yanov"] = true
+}
+
+function get_config(key)
+	if ui_mcm then
+		return ui_mcm.get("neutral_zone/" .. key)
+	else
+		return defaults[key]
+	end
+end
+
+function on_mcm_load()
+	op = {
+		id = "neutral_zone",
+		sh = true,
+		gr = {
+			{id = "title", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_neutral_zone_title", size = {512, 50}, spacing = 20},
+			{id = "description", type = "desc", text = "ui_mcm_neutral_zone_description", clr = {255, 125, 175, 200}},
+			{id = "yantar_bunker", type = "check", val = 1, def = true},
+			{id = "jupiter_bunker", type = "check", val = 1, def = true},
+			{id = "rostok", type = "check", val = 1, def = true},
+			{id = "yanov", type = "check", val = 1, def = true}
+		}
+	}
+	return op
+end

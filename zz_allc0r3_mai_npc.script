@@ -1,0 +1,8 @@
+--[[
+    MAI NPC Script - Placeholder
+    
+    Death handling is now done in zz_allc0r3_mai_main.script
+    This file kept for compatibility in case other scripts reference it
+--]]
+
+-- Nothing needed here - all functionality moved to main script

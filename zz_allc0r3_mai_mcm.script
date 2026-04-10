@@ -1,0 +1,128 @@
+-- MAI MCM Options
+-- version 2.6
+
+
+-- [ Defaults ]--
+
+local defaults = {
+    -- general
+    mod_enabled = true,
+    debug_mode = false,
+    verbose_debug = false,
+    show_debug_anomalies = false,
+    cleanup_map_markers = false,
+    
+    -- detection
+    base_detection_radius = 30,
+    cache_rebuild_delay = 2.5,
+    effect_radius = 300,
+    restrictions_ignore_radius = true,
+    
+    -- damage
+    enable_armor_damage_mult = true,
+    immune_zero_miss_chance = true,
+    block_anomalies_on_corpses = true,
+    
+    -- movement
+    standing_miss_multiplier = 0.3,
+    walking_miss_multiplier = 0.6,
+    running_miss_multiplier = 1.2,
+    combat_miss_multiplier = 3.0,
+    
+    -- ranks
+    rank_novice_miss_chance = 100,
+    rank_trainee_miss_chance = 75,
+    rank_experienced_miss_chance = 50,
+    rank_professional_miss_chance = 25,
+    rank_veteran_miss_chance = 0,
+    rank_expert_miss_chance = 0,
+    rank_master_miss_chance = 0,
+    rank_legend_miss_chance = 0,
+}
+
+
+-- [ Helpers ]--
+
+function get_config(key)
+    if ui_mcm then
+        return ui_mcm.get("mai/" .. key)
+    end
+    return defaults[key]
+end
+
+function mcm_available()
+    return ui_mcm ~= nil
+end
+
+
+-- [ Menu ]--
+
+function on_mcm_load()
+    return {
+        id = "mai",
+        sh = true,
+        gr = {
+            -- header
+            {
+                id = "slide_mai",
+                type = "slide",
+                link = "ui_options_slider_player",
+                text = "ui_mcm_mai_title",
+                size = {512, 50},
+                spacing = 20
+            },
+            
+            -- general
+            { id = "general_title", type = "title", text = "ui_mcm_mai_general_title" },
+            
+            { id = "mod_enabled",           type = "check", val = 1, def = true },
+            { id = "debug_mode",            type = "check", val = 1, def = false },
+            { id = "verbose_debug",         type = "check", val = 1, def = false },
+            { id = "show_debug_anomalies",  type = "check", val = 1, def = false },
+            { id = "cleanup_map_markers",   type = "check", val = 1, def = false },
+            
+            { id = "line_1", type = "line" },
+            
+            -- detection
+            { id = "detection_title", type = "title", text = "ui_mcm_mai_detection_title" },
+            
+            { id = "base_detection_radius", type = "track", val = 2, min = 10, max = 50, step = 5, def = 30 },
+            { id = "cache_rebuild_delay",   type = "track", val = 2, min = 0, max = 5, step = 0.5, def = 2.5 },
+            { id = "effect_radius",         type = "track", val = 2, min = 100, max = 500, step = 50, def = 300 },
+            { id = "restrictions_ignore_radius", type = "check", val = 1, def = true },
+            
+            { id = "line_2", type = "line" },
+            
+            -- damage
+            { id = "damage_title", type = "title", text = "ui_mcm_mai_damage_title" },
+            
+            { id = "enable_armor_damage_mult",   type = "check", val = 1, def = true },
+            { id = "immune_zero_miss_chance",    type = "check", val = 1, def = true },
+            { id = "block_anomalies_on_corpses", type = "check", val = 1, def = true },
+            
+            { id = "line_3", type = "line" },
+            
+            -- movement multipliers
+            { id = "movement_title", type = "title", text = "ui_mcm_mai_movement_title" },
+            
+            { id = "standing_miss_multiplier", type = "track", val = 2, min = 0.1, max = 1.0, step = 0.1, def = 0.3 },
+            { id = "walking_miss_multiplier",  type = "track", val = 2, min = 0.1, max = 1.5, step = 0.1, def = 0.6 },
+            { id = "running_miss_multiplier",  type = "track", val = 2, min = 0.5, max = 2.0, step = 0.1, def = 1.2 },
+            { id = "combat_miss_multiplier",   type = "track", val = 2, min = 1.0, max = 5.0, step = 0.5, def = 3.0 },
+            
+            { id = "line_4", type = "line" },
+            
+            -- rank miss chance
+            { id = "rank_title", type = "title", text = "ui_mcm_mai_rank_title" },
+            
+            { id = "rank_novice_miss_chance",       type = "track", val = 2, min = 0, max = 100, step = 5, def = 100 },
+            { id = "rank_trainee_miss_chance",      type = "track", val = 2, min = 0, max = 100, step = 5, def = 75 },
+            { id = "rank_experienced_miss_chance",  type = "track", val = 2, min = 0, max = 100, step = 5, def = 50 },
+            { id = "rank_professional_miss_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 25 },
+            { id = "rank_veteran_miss_chance",      type = "track", val = 2, min = 0, max = 100, step = 5, def = 0 },
+            { id = "rank_expert_miss_chance",       type = "track", val = 2, min = 0, max = 100, step = 5, def = 0 },
+            { id = "rank_master_miss_chance",       type = "track", val = 2, min = 0, max = 100, step = 5, def = 0 },
+            { id = "rank_legend_miss_chance",       type = "track", val = 2, min = 0, max = 100, step = 5, def = 0 },
+        }
+    }
+end
