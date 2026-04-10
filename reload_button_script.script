@@ -1,0 +1,11 @@
+local function on_key_release(key)
+    if (key == DIK_keys.DIK_PRIOR) then --PgUp
+        game.reload_ui_xml()
+        actor_status.deactivate_hud()
+        actor_status.activate_hud()
+    end
+end
+
+function on_game_start()
+    RegisterScriptCallback("on_key_release",on_key_release)
+end

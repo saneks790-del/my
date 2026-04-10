@@ -1,0 +1,22 @@
+function actor_on_first_update()
+	local pool = {
+		["kat_endless_night_spawn_01"] = {
+		pos = vector():set(-75.802963256836, 24.953762054443, 675.27313232422),
+		smart = "katacomb_smart_terrain",
+		}
+	}
+	
+	for sec,v in pairs(pool) do
+		local se = get_story_se_item(sec)
+		if not (se) then
+			local pos = v.pos
+			local vid = level.vertex_id(pos)
+			local gid = SIMBOARD.smarts_by_names[v.smart].m_game_vertex_id
+			se = alife():create(sec,pos,vid,gid)		
+		end
+	end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_first_update",actor_on_first_update)
+end

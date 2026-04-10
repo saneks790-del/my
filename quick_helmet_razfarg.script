@@ -1,0 +1,44 @@
+--[[   Script to take off/put on your helmet by holding hotkey.   ]]--
+
+local holdDelay = 1.0		--Delay in seconds while holding key before action
+local useKeyBind = true		--true uses keyBind, false uses dikKey. Lists for both can be found in lua_help.script from base game files
+local dikKey = DIK_keys.DIK_T		--Default is the 'T' key
+local keyBind = key_bindings.kCAM_ZOOM_IN		--Default is the 'Clean mask' keybind
+
+function on_game_start()
+	RegisterScriptCallback("on_key_press",on_key_press)
+	RegisterScriptCallback("on_key_release",on_key_release)
+end
+
+local lastHelmet
+function toggleHelmet()
+	local function itr(actor,item)
+		if item:id() == lastHelmet:id() then		--if lastHelmet is found in player inventory, move it to helmet slot
+			db.actor:move_to_slot(item,12)
+		end
+	end
+	if db.actor and db.actor:alive() then		--Make sure player exists and is alive
+		local currentHelmet = db.actor:item_in_slot(12)		--set currentHelmet to whatever player has equipped in helmet slot
+		if currentHelmet then		--if it's a helmet, move it to inventory and save it for re-equipping later
+			db.actor:move_to_ruck(currentHelmet)
+			lastHelmet = currentHelmet
+		elseif lastHelmet then		--if not, and lastHelmet is set, check player inventory for previously worn helmet
+			db.actor:iterate_ruck(itr,nil)
+		end
+	end
+	return true
+end
+
+function on_key_press(key)
+	local bind = dik_to_bind(key)
+	if (useKeyBind == true and bind == keyBind) or (useKeyBind == false and key == dikKey) then		--if the pressed key matches, create an event to make a delayed call to our toggleHelmet function
+		CreateTimeEvent("quick_actions","toggleHelmet",holdDelay,toggleHelmet)
+	end
+end
+
+function on_key_release(key)
+	local bind = dik_to_bind(key)
+	if (useKeyBind == true and bind == keyBind) or (useKeyBind == false and key == dikKey) then		--if the released key matches, remove our event to stop it from firing if released earlier than holdDelay
+		RemoveTimeEvent("quick_actions","toggleHelmet")		
+	end
+end

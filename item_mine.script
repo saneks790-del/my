@@ -1,0 +1,15 @@
+-- UNUSED
+
+----------------------
+-- File:   Mines
+-- Author: Shoker
+-- Модуль мин
+-- Swartz: Adapted a little further, however now you can blow up neutral stalkers with no penalty, (this needs to be fixed).
+-- Also, actor currently immune to them (needs to be since actor drops them at feet).
+-- Revamped by Alundaio to fix everything Swartz suggested
+-- Now turns NPCs who see actor place mines hostile
+-- Now has a primer before it will react to targets
+-- Uses persistent storage marshal library
+----------------------
+
+--Old World Addon - no more mines. Something tells me it was unused anyway.

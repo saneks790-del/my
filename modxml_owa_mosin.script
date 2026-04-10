@@ -1,0 +1,53 @@
+function on_xml_read()
+    RegisterScriptCallback("on_xml_read", function(xml_file_name, xml_obj)
+
+        if xml_file_name == [[ui\scopes.xml]] then
+			local a =
+[[
+  <wpn_owa_crosshair_mosin x="0" y="0" width="1024" height="768">
+    <auto_static x="128" y="0" width="768" height="768" stretch="1">
+      <texture>wpn_crosshair_mosin</texture>
+    </auto_static>
+  </wpn_owa_crosshair_mosin>
+]]
+			xml_obj:insertFromXMLString(a)
+		end
+
+        if xml_file_name == [[ui\scopes_16.xml]] then
+			local b =
+[[
+  <wpn_owa_crosshair_mosin x="0" y="0" width="1024" height="768">
+    <auto_static x="128" y="0" width="768" height="768" stretch="1">
+      <texture>wpn_crosshair_mosin</texture>
+    </auto_static>
+    <auto_static x="0" y="0" width="128" height="768" stretch="1">
+      <texture>wpn_owa_crosshair_side</texture>
+    </auto_static>
+    <auto_static x="896" y="0" width="128" height="768" stretch="1">
+      <texture>wpn_owa_crosshair_side</texture>
+    </auto_static>
+  </wpn_owa_crosshair_mosin>
+]]
+			xml_obj:insertFromXMLString(b)
+		end
+
+        if xml_file_name == [[ui\scopes_21.xml]] then
+			local c =
+[[
+   <wpn_owa_crosshair_mosin x="0" y="0" width="1024" height="768">
+    <auto_static x="224" y="0" width="576" height="768" stretch="1">
+      <texture>wpn_crosshair_mosin</texture>
+    </auto_static>
+    <auto_static x="0" y="0" width="224" height="768" stretch="1">
+      <texture>wpn_owa_crosshair_side</texture>
+    </auto_static>
+    <auto_static x="800" y="0" width="224" height="768" stretch="1">
+      <texture>wpn_owa_crosshair_side</texture>
+    </auto_static>
+  </wpn_owa_crosshair_mosin>
+]]
+			xml_obj:insertFromXMLString(c)
+        end
+		
+    end)
+end

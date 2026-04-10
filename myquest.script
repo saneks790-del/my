@@ -1,0 +1,13 @@
+[my_task]
+
+title_functor           = my_task_title_f
+descr_functor           = my_task_descr_f
+target_functor          = my_task_target_f
+status_functor          = my_task_status_f
+
+...
+
+icon                    = ui_inGame2_Skat_1
+storyline               = true
+
+stage_complete          = 1

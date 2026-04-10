@@ -1,0 +1,30 @@
+function actor_on_first_update()
+	local pool = {
+		["lim_endless_night_spawn_01"] = {
+		pos = vector():set(-17.574140548706, 1.1261698007584, -330.84838867188),
+		smart = "lim_smart_terrain_1",
+		},
+		["lim_endless_night_spawn_02"] = {
+		pos = vector():set(0.44929954409599, -5.0005149841309, -37.634101867676),
+		smart = "lim_smart_terrain_5",
+		},
+		["lim_endless_night_spawn_03"] = {
+		pos = vector():set(82.096961975098, 3.3002543449402, 280.77203369141),
+		smart = "lim_smart_terrain_10",
+		}
+	}
+	
+	for sec,v in pairs(pool) do
+		local se = get_story_se_item(sec)
+		if not (se) then
+			local pos = v.pos
+			local vid = level.vertex_id(pos)
+			local gid = SIMBOARD.smarts_by_names[v.smart].m_game_vertex_id
+			se = alife():create(sec,pos,vid,gid)		
+		end
+	end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_first_update",actor_on_first_update)
+end

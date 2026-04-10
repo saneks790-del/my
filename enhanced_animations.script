@@ -1,0 +1,391 @@
+--[[
+--------------------PLEASE DO NOT DELETE THIS SECTION---------------------------
+================================================================================
+Script(enhanced_animations) original:
+\\Author		:	thales100
+================================================================================
+Version: Sprint usage blocked (fixed cooldown issue)
+================================================================================
+]]--
+local ini_eff = {}
+enable_animations = true
+mutant_loot_mod = true
+local ea_debug = false
+local strict_sprinting = true
+ini_eff = ini_file("items\\items\\animations_settings.ltx")
+local active_slot,anim_exist_tm,wpn,item_usage_snd,monster_usage_snd,item,anim_use_time,obj_m,used_monster = nil
+used_item,ea_flag,fake_monster,det_active,anim_section = nil
+
+is_input_disabled = false
+
+local keymaps = {
+    game = {
+        allowed_bindings = {
+            [4] = true, [5] = true, [6] = true,
+            -- [7] = true,  -- SPRINT - ЗАБЛОКИРОВАН
+            [8] = true, [9] = true, [10] = true, [11] = true,
+            [30] = true, [46] = true, [47] = true,
+            [61] = true, [62] = true, [63] = true, [64] = true, [93] = true,
+        },
+        allowed_keys = {
+            [1] = true, [2] = true, [3] = true, [4] = true, [29] = true,
+            [41] = true, [42] = true, [56] = true, [57] = true,
+            [59] = true, [60] = true, [61] = true, [62] = true, [337] = true,
+        },
+        skip_bidings = {},
+        skip_keys = {}
+    }
+}
+
+function on_game_start()
+	RegisterScriptCallback("on_game_load",on_game_load)
+	RegisterScriptCallback("on_option_change", loadsettings)
+	RegisterScriptCallback("on_before_key_press", on_before_key_press)
+	if not ui_mcm then
+		RegisterScriptCallback("on_key_release", on_key_release)
+	end
+end
+
+function on_game_load()
+	activate()
+end
+
+function on_before_key_press(key, bind, dis, flags)
+    if not is_input_disabled then return end
+    
+    local keymap = keymaps.game
+    
+    -- Блокируем спринт во время анимации
+    if strict_sprinting and bind == 7 then
+        flags.ret_value = false
+        return
+    end
+    
+    if not (keymap.allowed_bindings[bind] or keymap.allowed_keys[key]) then
+        flags.ret_value = false
+    end
+end
+
+function on_key_release(key)
+	local bind = dik_to_bind(key)
+	if bind == key_bindings.kCAM_ZOOM_OUT then
+		enable_animations = not enable_animations
+	end
+end
+
+function loadsettings()
+	if ui_mcm then
+		enable_animations = ui_mcm.get("EA_settings/enable_animations")
+		mutant_loot_mod = ui_mcm.get("EA_settings/mutant_loot")
+		ea_debug = ui_mcm.get("EA_settings/ea_debug")
+		if ui_mcm.get("EA_settings/strict_sprinting") ~= nil then
+			strict_sprinting = ui_mcm.get("EA_settings/strict_sprinting")
+		end
+		if enable_animations == false then
+			mutant_loot_mod = false
+			ui_mcm.set("EA_settings/mutant_loot", false)
+		end
+	else
+		mutant_loot_mod = ini_eff:r_bool_ex("anim_settings", "mutant_loot_mod")
+		enable_animations = ui_options.get("video/player/animations")
+		strict_sprinting = true
+	end
+end
+
+function activate()
+	ini_eff = ini_file("items\\items\\animations_settings.ltx")
+	RegisterScriptCallback("monster_on_actor_use_callback",monster_on_actor_use)
+	RegisterScriptCallback("actor_on_first_update",actor_on_first_update)
+end
+
+function anim_prepare()
+	is_input_disabled = true
+	hide_det()
+	active_slot = db.actor:active_slot()
+	anim_exist_tm = nil
+	db.actor:restore_weapon()
+	db.actor:activate_slot(0)
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+end
+
+function use_item(obj)
+	item = obj:section()
+	obj_m = obj
+	used_item = item
+	hide_hud_inventory()
+	anim_section = ini_eff:r_string_ex(item, "anm")
+	mask_hud_switcher()
+	anim_prepare()
+end
+
+function monster_on_actor_use(obj)
+	if (not mutant_loot_mod) or (not enable_animations) then
+		used_monster = nil
+		anim_exist_tm = nil
+		return
+	end
+	
+	-- Запрет разделки в спринте
+	if strict_sprinting and IsMoveState("mcSprint") then
+		return
+	end
+	
+	wpn = db.actor:active_item()
+	if wpn then
+		wpn = wpn:clsid() == 168 and wpn:section() or "wpn_knife5"
+		wpn = string.gsub(wpn,"-","_")
+	end
+	item_knife.degradate()
+	used_monster = obj
+	anim_prepare()
+	recalc_actor_campos()
+end
+
+function start_anim(anim_section_hud)
+	UnregisterScriptCallback("actor_on_update", actor_on_update)
+	fov_anim_manager.change_fov(0.45)
+	local speed = ini_eff:r_float_ex(used_item or "nothing", "speed") or 1
+	if ea_debug then printf("speed is = "..speed) end
+	game.play_hud_motion(2, anim_section_hud, "anm_ea_show", false, speed)
+	local hud_anm = used_item and ini_eff:r_string_ex(used_item, "hud_anm")
+	if hud_anm then
+		game.play_hud_anm(hud_anm, 0, 1, 1, false)
+	end
+	hud_anm = nil
+end
+
+function anim_manager_item(anim_section_hud)
+	item_usage_snd = sound_object(ini_eff:r_string_ex(used_item, "snd"))
+	item_usage_snd:play(db.actor, 0, sound_object.s2d)
+	level.add_cam_effector(ini_eff:r_string_ex(used_item, "cam"), 8555, false, "")
+	tmr = ini_eff:r_float_ex(used_item, "tm")
+	anim_exist_tm = tmr*0.001
+	anim_use_time = anim_exist_tm*0.367
+	CreateTimeEvent("ea_object_eater", "eat_my_obj", anim_use_time, eat_my_obj)
+	CreateTimeEvent("ea_slot_returner", "call_my_slot_back", (anim_exist_tm + 0.1), call_my_slot_back)
+	if ciga_effects then
+		if ini_eff:line_exist(used_item, "smoke") then ciga_effects.ciga_start(used_item) end
+	end
+	alife_create_item("items_anm_dummy",db.actor)
+	CreateTimeEvent("ea_anim_stoper", "stop_my_item_anim", anim_exist_tm, stop_my_item_anim)
+	ea_callbacks.EA_SendScriptCallback("ea_on_item_use",used_item,anim_exist_tm)
+end
+
+function anim_manager_monster()
+	monster_usage_snd = sound_object(ini_eff:r_string_ex("item_ea_harv_wpn_knife", "anim_sound"))
+	monster_usage_snd:play(db.actor, 0, sound_object.s2d)
+	level.add_cam_effector("itemuse_anm_effects\\harvest_skin_use.anm", 8558, false, "")
+	level.add_cam_effector("itemuse_anm_effects\\test.anm", 8559, false, "")
+	tmr = ini_eff:r_float_ex("item_ea_harv_wpn_knife", "anim_length")
+	anim_exist_tm = tmr*0.001
+	CreateTimeEvent("ea_slot_returner", "call_my_slot_back", (anim_exist_tm + 0.5), call_my_slot_back)
+	CreateTimeEvent("ea_blood_fx", "blood_fx", (1), blood_fx)
+	CreateTimeEvent("ea_blood_fx2", "blood_fx2", (1.6), blood_fx)
+	CreateTimeEvent("ea_blood_fx3", "blood_fx3", (2.1), blood_fx)
+	CreateTimeEvent("ea_blood_fx4", "blood_fx4", (2.2), blood_fx)
+	CreateTimeEvent("ea_anim_stoper", "stop_my_monster_anim", anim_exist_tm, stop_my_monster_anim)
+end
+
+local failure_timer = 0
+local fdda_error_snd = sound_object(ini_eff:r_string_ex("fdda_error_snd", "snd"))
+function actor_on_update()
+	failure_timer = failure_timer + (device().time_delta/17)
+	if ea_debug then printf("update = "..failure_timer) end
+	if (db.actor:active_slot() ~= 0 or db.actor:active_detector()) and (failure_timer < 100) then
+		return
+	elseif ea_debug and (failure_timer >= 100) then
+		fdda_error_snd:play(db.actor, 0, sound_object.s2d)
+		printf("hide weapons for anim failed")
+		printf(used_item  or (used_monster and used_monster:section())  or "anim find ERROR")
+		printf(anim_section or "NO ANIM SECTION FOUND")
+		level.enable_input()
+		is_input_disabled = false
+		actor_menu.set_msg(1, "PLEASE EXIT THE GAME AND SEND LOG FILE TO FEEL_FRIED",5)
+	end
+	
+	local anim_section_hud = nil
+	if used_monster then
+		anim_section_hud = "item_ea_harv_" .. ( wpn or "wpn_knife5" ) .. "_hud"
+		start_anim(anim_section_hud)
+		anim_manager_monster()
+		failure_timer = 0
+		return
+	end
+	failure_timer = 0
+	anim_section_hud = anim_section .. "_hud"
+	anim_section = nil
+	start_anim(anim_section_hud)
+	anim_manager_item(anim_section_hud)
+end
+
+local originalPIF = actor_effects.play_item_fx
+function actor_effects.play_item_fx(item)
+	if ini_eff:r_string_ex(item, "snd") and enable_animations or ini_eff:r_bool_ex("skip_items", item) then return end
+	if skip_functor(item) then return end
+	originalPIF(item)
+end
+
+local originalUW = actor_effects.use_weapon
+function actor_effects.use_weapon(f)
+	if f == 1 then
+		CreateTimeEvent("ea_def_use", "def_use_end", 0.5, def_use_end)
+ 	end
+	if f == 0 then
+		 hide_hud_inventory()
+		 is_input_disabled = true
+	end
+	originalUW(f)
+end
+
+-- Переопределяем функцию использования предмета ДО стандартной обработки
+local original_use_item = actor_effects.use_item
+function actor_effects.use_item(obj)
+	local item = obj:section()
+	
+	-- Если в спринте и предмет имеет анимацию - полностью блокируем
+	if strict_sprinting and IsMoveState("mcSprint") then
+		if ini_eff:r_string_ex(item, "snd") and enable_animations then
+			return false  -- Предотвращаем любую обработку
+		end
+	end
+	
+	return original_use_item(obj)
+end
+
+--delaying item use - исправленная версия
+local originalAOIBU = itms_manager.actor_on_item_before_use
+function itms_manager.actor_on_item_before_use(obj,flags)
+	-- Сначала проверяем спринт ДО вызова оригинальной функции
+	local item = obj:section()
+	
+	if IsMoveState("mcClimb") then
+		actor_menu.set_msg(1, game.translate_string("st_EA_ladder_item_not_allowed"),3)
+		flags.ret_value = false
+		return
+	end
+	
+	-- Если в спринте - полностью блокируем, не вызывая originalAOIBU
+	if strict_sprinting and IsMoveState("mcSprint") then
+		flags.ret_value = false
+		return
+	end
+	
+	-- Только если НЕ в спринте, вызываем оригинальную функцию
+	originalAOIBU(obj,flags)
+	
+	-- Проверяем ещё раз (на случай если originalAOIBU что-то изменила)
+	if flags.ret_value == false then
+		return
+	end
+	
+	if ini_eff:r_string_ex(item, "snd") and enable_animations and flags.ret_value then
+		use_item(obj)
+		flags.ret_value = false
+		return
+	end
+	return
+end
+
+local originalUMLS = ui_mutant_loot.start
+function ui_mutant_loot.start(obj, for_bug1, for_bug2)
+	if not ea_flag and enable_animations and mutant_loot_mod then return end
+	originalUMLS(obj, for_bug1, for_bug2)
+end
+
+function call_my_slot_back()
+	is_input_disabled = false
+	if take_item_anim and fake_monster then
+		return true
+	end
+	db.actor:activate_slot(active_slot or 0)
+	if det_active then det_active:switch_state(1) end
+	return true
+end
+
+local bone_list = {[1] = "bip01_spine1", [2] = "bip01_spine2", [3] = "bip01_spine", [4] = "bip01_pelvis", [5] = "bip01_head"}
+function blood_fx()
+	if not used_monster or used_monster:id() == 65535 then return true end
+	local fx_pos = used_monster:bone_position(bone_list[math.random(1,5)])
+	fx_pos.y = fx_pos.y + 0.1
+	local blood_trace = vector():set(0,-1,0)
+	wallmarks_manager():place_skeleton(used_monster, "bloody_marks", fx_pos, blood_trace, 0.2,-1)
+	wallmarks_manager():place(blood_trace, fx_pos, 15, 0.3, "bloody_marks", used_monster,-1)
+	local hit_fx = particles_object("hit_fx\\hit_flesh_01")
+	hit_fx:play_at_pos(fx_pos)
+	local hit_fx2 = particles_object("hit_fx\\hit_flesh_02a")
+	hit_fx2:play_at_pos(fx_pos)
+	local hit_fx3 = particles_object("hit_fx\\hit_knife_flesh_00")
+	hit_fx3:play_at_pos(fx_pos)
+	return true
+end
+
+function eat_my_obj()
+	if obj_m then db.actor:eat(obj_m) end
+	db.actor:eat(db.actor:object("items_anm_dummy"))
+	return true
+end
+
+function stop_my_item_anim()
+	ea_callbacks.EA_SendScriptCallback("ea_on_item_anim_stop",used_item)
+	ea_restore_actor()
+	mask_hud_switcher()
+	used_item = nil
+	obj_m = nil
+	return true
+end
+
+function stop_my_monster_anim()
+	ea_restore_actor()
+	if used_monster:id() == 65535 or (not take_item_anim) then
+		used_monster = nil
+		return true
+	end
+	fake_monster = used_monster
+	used_monster = nil
+	ea_flag = true
+	ui_mutant_loot.start(fake_monster, fake_monster:id(), fake_monster:section(), fake_monster:clsid())
+	ea_flag = nil
+	if not ui_mutant_loot.GUI:Reset(fake_monster, fake_monster:id(), fake_monster:section(), fake_monster:clsid()) then
+		fake_monster = nil
+	end
+	return true
+end
+
+function def_use_end()
+	is_input_disabled = false
+	return true
+end
+
+function mask_hud_switcher()
+	if (not ini_eff:r_bool_ex(used_item, "helm")) and ui_options.get("video/player/mask_hud") then
+		actor_effects.switch_helm()
+		actor_effects.Update_Mask(db.actor)
+	end
+end
+
+function ea_restore_actor()
+	db.actor:hide_weapon()
+	fov_anim_manager.restore_fov()
+	level.enable_input()
+	is_input_disabled = false
+end
+
+function hide_det()
+	det_active = db.actor:active_detector() or nil
+	if det_active then det_active:switch_state(2) end
+end
+
+function actor_on_first_update()
+	if db.actor:object("items_anm_dummy") then alife_release(db.actor:object("items_anm_dummy")) end
+	loadsettings()
+end
+
+function recalc_actor_campos()
+	local pm = used_monster:bone_position('bip01_spine1')
+	pm.y = pm.y + 0.8
+	db.actor:actor_look_at_point(pm)
+end
+
+function skip_functor(item)
+	return mutant_loot_mod and ini_eff:r_bool_ex("skip_mutant", item)
+end

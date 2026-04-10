@@ -1,0 +1,603 @@
+--@diagnostic disable: undefined-global, need-check-nil, lowercase-global, redundant-parameter
+local verification_npc = {}
+local verification_npc2 = {}
+local verification_npc3 = {}
+local last_hit_time = {}
+local weapon = nil
+local sec = nil
+local coward_f = {
+    ["stalker"] = "stalker",
+    ["bandit"] = "bandit",
+    ["csky"] = "csky",
+    ["ecolog"] = "ecolog",
+    ["freedom"] = "freedom",
+    ["greh"] = "sin",
+}
+
+local dumb_f = {
+    ["killer"] = "merc",
+    ["dolg"] = "duty",
+    ["army"] = "military",
+    ["renegade"] = "renegade",
+    ["monolith"] = "monolith",
+    ["isg"] = "unisg",
+}
+
+local stupid_f = {
+    ["stalker"] = "stalker",
+    ["bandit"] = "bandit",
+    ["csky"] = "csky",
+    ["ecolog"] = "ecolog",
+    ["freedom"] = "freedom",
+    ["killer"] = "merc",
+    ["dolg"] = "duty",
+    ["army"] = "military",
+    ["renegade"] = "renegade",
+    ["monolith"] = "monolith",
+    ["greh"] = "sin",
+    ["isg"] = "unisg",
+}
+
+local ranks = {
+    ["novice"] = "Rookie",
+    ["trainee"] = "Trainee",
+    ["experienced"] = "Experienced",
+    ["professional"] = "Professional",
+    ["veteran"] = "Veteran",
+    ["expert"] = "Expert",
+    ["master"] = "Master",
+    ["legend"] = "Legend",
+}
+
+local function npc_on_hit_callback(npc, amount, local_direction, who, bone_index)
+    if amount > 0 then db.storage[npc:id()].hitted_by = who and who:id() end
+    if who:id() == AC_ID then -- txr_bribe
+        verification_npc[npc:id()] = 0 -- txr_bribe.npc_on_hit_callback(character_community(npc))
+    end
+
+    if amount > 0 then last_hit_time[npc:id()] = time_global() end
+end
+
+local function npc_on_hear_callback(npc, obj, who_id, s_type, dist, sound_power, sound_position)
+    return true
+end
+
+function on_game_start()
+    RegisterScriptCallback("npc_on_hit_callback", npc_on_hit_callback)
+    RegisterScriptCallback("npc_on_hear_callback", npc_on_hear_callback)
+    RegisterScriptCallback("save_state", save_state)
+    RegisterScriptCallback("load_state", load_state)
+end
+
+function save_state(m_data)
+    m_data.table_npc = table_npc
+    m_data.dumb_table = dumb_table
+    m_data.coward_table = coward_table
+    m_data.stupid_table = stupid_table
+    m_data.swicth_table = swicth_table
+    m_data.swicth_table2 = swicth_table2
+    m_data.swicth_table3 = swicth_table3
+end
+
+function load_state(m_data)
+    table_npc = m_data.table_npc
+    dumb_table = m_data.dumb_table
+    coward_table = m_data.coward_table
+    stupid_table = m_data.stupid_table
+    swicth_table = m_data.swicth_table
+    swicth_table2 = m_data.swicth_table2
+    swicth_table3 = m_data.swicth_table3
+end
+
+local table_npc = {}
+local dumb_table = {}
+local coward_table = {}
+local stupid_table = {}
+local swicth_table = {}
+local swicth_table2 = {}
+local swicth_table3 = {}
+local time_table = {}
+local time_table2 = {}
+local time_table3 = {}
+local time_table4 = {}
+local time_table5 = {}
+math.randomseed(os.time())
+local rnd = math.random(12000, 24000)
+local rnd2 = math.random(28000, 58000)
+--[[
+local swicth_table = setmetatable({}, {
+    __index = function(t1, k1)
+        t1[k1] = setmetatable({}, {
+            __index = function(t2, k2)
+                t2[k2] = 0
+                return t2[k2]
+            end
+        })
+        return t1[k1]
+    end
+})
+
+local swicth_table2 = setmetatable({}, {
+    __index = function(t1, k1)
+        t1[k1] = setmetatable({}, {
+            __index = function(t2, k2)
+                t2[k2] = 0
+                return t2[k2]
+            end
+        })
+        return t1[k1]
+    end
+})
+
+local swicth_table3 = setmetatable({}, {
+    __index = function(t1, k1)
+        t1[k1] = setmetatable({}, {
+            __index = function(t2, k2)
+                t2[k2] = 0
+                return t2[k2]
+            end
+        })
+        return t1[k1]
+    end
+})
+--]]
+function trace_this(to_trace1)
+    local log_file = io.open("log_memory_npc", "a")
+    log_file:write(to_trace1)
+    log_file:close(log_file)
+end
+
+function dumb_npc(npc, id) --( attack\camper npc )
+    if IsStalker(id) then
+        local rank = ranks.get_obj_rank_name(npc)
+        local faction = character_community(npc)
+        local fchance = 5
+        local rchance = 5
+        local tchance = fchance + rchance
+        local rnd3 = math.random(1, tchance)
+        if faction == "stalker" or "bandit" or "csky" or "ecolog" or "freedom" or "killer" or "army" or "dolg" or "renegade" or "monolith" or "greh" or "isg" then
+            if rank == "master" then
+                fchance = 4
+                return
+            elseif rank == "legend" then
+                fchance = 5
+                return
+            else
+                fchance = 4
+                return
+            end
+        else
+            fchance = 5
+            return
+        end
+
+        if not coward_f[faction] then
+            if rank == "novice" then
+                rchance = 1
+                return
+            elseif rank == "trainee" then
+                rchance = 1
+                return
+            elseif rank == "experienced" then
+                rchance = 2
+                return
+            elseif rank == "professional" then
+                rchance = 2
+                return
+            elseif rank == "Veteran" then
+                rchance = 3
+                return
+            elseif rank == "Expert" then
+                rchance = 4
+                return
+            else
+                rchance = 5
+                return
+            end
+        end
+
+        if not dumb_f[faction] then
+            if rank == "novice" then
+                rchance = 2
+                return
+            elseif rank == "trainee" then
+                rchance = 2
+                return
+            elseif rank == "experienced" then
+                rchance = 3
+                return
+            elseif rank == "professional" then
+                rchance = 3
+                return
+            elseif rank == "Veteran" then
+                rchance = 4
+                return
+            elseif rank == "Expert" then
+                rchance = 4
+                return
+            else
+                rchance = 5
+                return
+            end
+        end
+
+        if dumb_table[id] == nil and not dumb_f[faction] or dumb_table[id] == nil and not coward_f[faction] then
+            if rnd3 == 1 then
+                dumb_table[id] = 1
+            else
+                dumb_table[id] = 2
+            end
+        end
+    end
+end
+
+function is_dumb(id, distance, my_memory)
+    if dumb_table[id] ~= nil then if dumb_table[id] == 1 and distance >= 120 and my_memory < rnd2 then return true end end
+end
+
+function coward_npc(npc, id) --( camper\attack npc )
+    local rnd4 = math.random(1, 4)
+    if IsStalker(id) then
+        if coward_table[id] == nil then
+            if rnd4 == 1 then
+                coward_table[id] = 1
+            else
+                coward_table[id] = 2
+            end
+        end
+    end
+end
+
+function is_coward(id, distance, my_memory)
+    if coward_table[id] ~= nil then if coward_table[id] == 1 and distance >= 10 and my_memory < rnd2 then return true end end
+end
+
+function pure_enemy_distance(npc, enemy)
+    local st = db.storage[npc:id()]
+    local enemy = st and st.enemy_id and (db.storage[st.enemy_id] and db.storage[st.enemy_id].object or level.object_by_id(st.enemy_id))
+    local pos1 = npc:position()
+    local pos2 = enemy:position()
+    local dist = pos1:distance_to_sqr(pos2)
+    if dist < 120 then return true end
+end
+
+function ranged(weapon)
+    local wpn = weapon
+    local sec = wpn:section()
+    local kind = ini_sys:r_string_ex(sec, "kind") or "unknown"
+    local lr = {
+        --["w_pistol"] = true,
+        ["w_rifle"] = true,
+        ["w_sniper"] = true,
+        ["w_launcher"] = true,
+    }
+
+    if lr[kind] then
+        return true
+    else
+        return false
+    end
+end
+
+function scheme_cover_coward(enemy, npc, actor) --( Camper\cover-scheme ) --( coward_table )
+    local weapon = npc:active_item()
+    local faction = character_community(npc)
+    local is_actor = enemy_id == db.actor:id()
+    local is_monster = character_community(enemy2) == "zombied" or IsMonster(enemy2)
+    local is_friend = character_community(db.actor) == character_community(enemy2)
+    local enemy_id = db.storage[npc:id()].enemy_id
+    local enemy2 = enemy_id and level.object_by_id(enemy_id)
+    local pos1 = npc:position()
+    local pos2 = enemy:position()
+    local dist = pos1:distance_to_sqr(pos2)
+    local time_in_memory = time_global()
+    local time_since_seen = time_global() - npc:memory_time(enemy)
+    local time_since_last_seen = time_global() - npc:memory_time(enemy)
+    time_table[npc:id()] = time_global() - npc:memory_time(enemy)
+    if is_monster then return false end
+    if enemy_id ~= db.actor:id() then return false end
+    if dist < 10 or dist >= 2000 then return false end
+    --if pure_enemy_distance(npc, enemy) then return false end
+    if npc:alive() then
+        if npc:see(db.actor) or npc:see(enemy) then
+            table_npc[npc:id()] = true
+        elseif (npc:see(db.actor) and db.actor:see(npc)) and dist > 1 then
+            return true
+        elseif (db.actor:see(npc) and (not npc:see(db.actor))) and dist > 1 then
+            return false
+        end
+    end
+
+    if IsStalker(npc) then
+        if weapon ~= nil then
+            if ranged(weapon) == true then
+                dumb_table[npc:id()] = true
+            else
+                coward_table[npc:id()] = true
+            end
+        end
+    end
+
+    if npc.health <= 0.8 then
+        if time_table[npc:id()] ~= nil then
+            if dist >= 10 and dist < 1000 and time_table[npc:id()] < rnd then if swicth_table[npc:id()] == true and enemy.health < 0.6 then return true end end
+            if dist >= 1000 and time_table[npc:id()] < rnd2 then
+                if swicth_table[npc:id()] == true and enemy.health < 0.6 then return true end
+                return false
+            end
+        end
+    end
+
+    if last_hit_time[npc:id()] and time_global() - last_hit_time[npc:id()] < 25000 then return true end
+    if table_npc[npc:id()] and time_since_last_seen >= 100 and not swicth_table[npc:id()] then swicth_table[npc:id()] = true end
+    if verification_npc[npc:id()] == nil then verification_npc[npc:id()] = 0 end
+    if coward_table[npc:id()] ~= 1 then
+        if (dist < 2000 and dist > 10) and time_table[npc:id()] < rnd2 then
+            if swicth_table[npc:id()] == true and verification_npc[npc:id()] ~= 15 then
+                if verification_npc[npc:id()] < 15 then verification_npc[npc:id()] = verification_npc[npc:id()] + 1 end
+                return true
+            end
+        else
+            return false
+        end
+        return false
+    end
+    return false
+end
+
+function scheme_camper_coward(enemy, npc, actor) --( Camper\camper-scheme ) --( coward_table )
+    local weapon = npc:active_item()
+    local faction = character_community(npc)
+    local is_actor = enemy_id == db.actor:id()
+    local is_monster = character_community(enemy2) == "zombied" or IsMonster(enemy2)
+    local is_friend = character_community(db.actor) == character_community(enemy2)
+    local enemy_id = db.storage[npc:id()].enemy_id
+    local enemy2 = enemy_id and level.object_by_id(enemy_id)
+    local pos1 = npc:position()
+    local pos2 = enemy:position()
+    local dist = pos1:distance_to_sqr(pos2)
+    local time_in_memory = time_global()
+    local time_since_seen = time_global() - npc:memory_time(enemy)
+    local time_since_last_seen = time_global() - npc:memory_time(enemy)
+    time_table2[npc:id()] = time_global() - npc:memory_time(enemy)
+    if is_monster then return false end
+    if not enemy_id or enemy_id ~= db.actor:id() then return false end
+    if time_since_seen == nil or dist == nil then return false end
+    --if pure_enemy_distance(npc, enemy) then return false end
+    if npc:alive() then
+        if npc:see(db.actor) or npc:see(enemy) then
+            table_npc[npc:id()] = true
+        elseif (npc:see(db.actor) and db.actor:see(npc)) and dist > 1 then
+            return true
+        elseif (db.actor:see(npc) and (not npc:see(db.actor))) and dist > 1 then
+            return false
+        end
+    end
+
+    if IsStalker(npc) then
+        if weapon ~= nil then
+            if ranged(weapon) == true then
+                dumb_table[npc:id()] = true
+            else
+                coward_table[npc:id()] = true
+            end
+        end
+    end
+
+    if npc.health <= 0.8 then
+        if time_table2[npc:id()] ~= nil then
+            if dist >= 10 and dist < 1000 and time_table2[npc:id()] < rnd then if swicth_table[npc:id()] == true and enemy.health > 0.6 then return true end end
+            if dist >= 1000 and time_table2[npc:id()] < rnd2 then
+                if swicth_table[npc:id()] == true and enemy.health > 0.6 then return true end
+                return false
+            end
+        end
+    end
+
+    if last_hit_time[npc:id()] and time_global() - last_hit_time[npc:id()] < 35000 then return false end
+    if verification_npc[npc:id()] == nil then verification_npc[npc:id()] = 0 end
+    if verification_npc2[npc:id()] == 15 and dist > 10 then
+        if verification_npc[npc:id()] < 15 then
+            verification_npc[npc:id()] = verification_npc[npc:id()] + 1
+        else
+            verification_npc[npc:id()] = 0
+            verification_npc2[npc:id()] = 0
+            return false
+        end
+        return true
+    end
+
+    coward_npc(npc:id())
+    if is_coward(npc:id(), dist, time_since_last_seen) and swicth_table[npc:id()] then return true end
+    if time_since_seen >= 100 and dist >= 10 or time_since_last_seen >= 100 and dist >= 10 then 
+        return true
+    end
+    return false
+end
+
+function scheme_cover_dumb(enemy, npc, actor) --( Attack\cover-scheme ) --( dumb_table )
+    local weapon = npc:active_item()
+    local faction = character_community(npc)
+    local is_actor = enemy_id == db.actor:id()
+    local is_monster = character_community(enemy2) == "zombied" or IsMonster(enemy2)
+    local is_friend = character_community(db.actor) == character_community(enemy2)
+    local enemy_id = db.storage[npc:id()].enemy_id
+    local enemy2 = enemy_id and level.object_by_id(enemy_id)
+    local pos1 = npc:position()
+    local pos2 = enemy:position()
+    local dist = pos1:distance_to_sqr(pos2)
+    local time_in_memory = time_global()
+    local time_since_seen = time_global() - npc:memory_time(enemy)
+    local time_since_last_seen = time_global() - npc:memory_time(enemy)
+    time_table3[npc:id()] = time_global() - npc:memory_time(enemy)
+    if is_monster then return false end
+    if enemy_id ~= db.actor:id() then return false end
+    if dist < 120 or dist >= 1500 then return false end
+    if pure_enemy_distance(npc, enemy) then return false end
+    if npc:alive() then
+        if npc:see(db.actor) or npc:see(enemy) then
+            table_npc[npc:id()] = true
+        elseif (npc:see(db.actor) and db.actor:see(npc)) and dist > 1 then
+            return true
+        elseif (db.actor:see(npc) and (not npc:see(db.actor))) and dist > 1 then
+            return false
+        end
+    end
+
+    if IsStalker(npc) then
+        if weapon ~= nil then
+            if ranged(weapon) == true then
+                dumb_table[npc:id()] = true
+            else
+                coward_table[npc:id()] = true
+            end
+        end
+    end
+
+    if npc.health <= 0.4 then
+        if time_table3[npc:id()] ~= nil then
+            if dist >= 120 and dist < 1000 and time_table3[npc:id()] < rnd then if swicth_table2[npc:id()] == true and enemy.health < 0.6 then return true end end
+            if dist >= 1000 and time_table3[npc:id()] < rnd2 then
+                if swicth_table2[npc:id()] == true and enemy.health < 0.6 then return true end
+                return false
+            end
+        end
+    end
+
+    if last_hit_time[npc:id()] and time_global() - last_hit_time[npc:id()] < 30000 then return true end
+    if table_npc[npc:id()] and time_since_last_seen >= 100 and not swicth_table2[npc:id()] then swicth_table2[npc:id()] = true end
+    if verification_npc2[npc:id()] == nil then verification_npc2[npc:id()] = 0 end
+    if dumb_table[npc:id()] ~= 1 then
+        if (dist < 1500 and dist > 120) and time_table3[npc:id()] < rnd2 then
+            if swicth_table2[npc:id()] == true and verification_npc2[npc:id()] ~= 15 then
+                if verification_npc2[npc:id()] < 15 then verification_npc2[npc:id()] = verification_npc2[npc:id()] + 1 end
+                return true
+            end
+        else
+            return false
+        end
+        return false
+    end
+    return false
+end
+
+function scheme_camper_dumb(enemy, npc, actor) --( Attack\camper-scheme ) --( dumb_table )
+    local weapon = npc:active_item()
+    local faction = character_community(npc)
+    local is_actor = enemy_id == db.actor:id()
+    local is_monster = character_community(enemy2) == "zombied" or IsMonster(enemy2)
+    local is_friend = character_community(db.actor) == character_community(enemy2)
+    local enemy_id = db.storage[npc:id()].enemy_id
+    local enemy2 = enemy_id and level.object_by_id(enemy_id)
+    local pos1 = npc:position()
+    local pos2 = enemy:position()
+    local dist = pos1:distance_to_sqr(pos2)
+    local time_in_memory = time_global()
+    local time_since_seen = time_global() - npc:memory_time(enemy)
+    local time_since_last_seen = time_global() - npc:memory_time(enemy)
+    time_table4[npc:id()] = time_global() - npc:memory_time(enemy)
+    if is_monster then return false end
+    if not enemy_id or enemy_id ~= db.actor:id() then return false end
+    if time_since_seen == nil or dist == nil then return false end
+    if pure_enemy_distance(npc, enemy) then return false end
+    if npc:alive() then
+        if npc:see(db.actor) or npc:see(enemy) then
+            table_npc[npc:id()] = true
+        elseif (npc:see(db.actor) and db.actor:see(npc)) and dist > 1 then
+            return true
+        elseif (db.actor:see(npc) and (not npc:see(db.actor))) and dist > 1 then
+            return false
+        end
+    end
+
+    if IsStalker(npc) then
+        if weapon ~= nil then
+            if ranged(weapon) == true then
+                dumb_table[npc:id()] = true
+            else
+                coward_table[npc:id()] = true
+            end
+        end
+    end
+
+    if npc.health <= 0.4 then
+        if time_table4[npc:id()] ~= nil then
+            if dist >= 120 and dist < 1000 and time_table4[npc:id()] < rnd then if swicth_table2[npc:id()] == true and enemy.health > 0.6 then return true end end
+            if dist >= 1000 and time_table4[npc:id()] < rnd2 then
+                if swicth_table2[npc:id()] == true and enemy.health > 0.6 then return true end
+                return false
+            end
+        end
+    end
+
+    if last_hit_time[npc:id()] and time_global() - last_hit_time[npc:id()] < 35000 then return true end
+    if verification_npc2[npc:id()] == nil then verification_npc2[npc:id()] = 0 end
+    if verification_npc[npc:id()] == 15 and dist > 120 then
+        if verification_npc2[npc:id()] < 15 then
+            verification_npc2[npc:id()] = verification_npc2[npc:id()] + 1
+        else
+            verification_npc[npc:id()] = 0
+            verification_npc2[npc:id()] = 0
+            return false
+        end
+        return true
+    end
+
+    dumb_npc(npc:id())
+    if is_dumb(npc:id(), dist, time_since_last_seen) and swicth_table2[npc:id()] then return true end
+    if time_since_seen >= 1500 and dist >= 1500 or time_since_last_seen >= 1500 and dist >= 1500 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 1250 or time_since_last_seen >= 1500 and dist >= 1250 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 1000 or time_since_last_seen >= 1500 and dist >= 1000 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 880 or time_since_last_seen >= 1500 and dist >= 880 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 760 or time_since_last_seen >= 1500 and dist >= 760 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 680 or time_since_last_seen >= 1500 and dist >= 680 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 560 or time_since_last_seen >= 1500 and dist >= 560 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 480 or time_since_last_seen >= 1500 and dist >= 480 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 360 or time_since_last_seen >= 1500 and dist >= 360 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 240 or time_since_last_seen >= 1500 and dist >= 240 then
+        return true
+    elseif time_since_seen >= 1500 and dist >= 120 or time_since_last_seen >= 1500 and dist >= 120 then
+        return true
+    end
+    return false
+end
+
+function scheme_stupid(enemy, npc, actor) --( Assault\monolith-scheme ) --( stupid_table )
+    local weapon = npc:active_item()
+    local faction = character_community(npc)
+    local is_actor = enemy_id == db.actor:id()
+    local is_monster = character_community(enemy2) == "zombied" or IsMonster(enemy2)
+    local is_friend = character_community(db.actor) == character_community(enemy2)
+    local enemy_id = db.storage[npc:id()].enemy_id
+    local enemy2 = enemy_id and level.object_by_id(enemy_id)
+    local pos1 = npc:position()
+    local pos2 = enemy:position()
+    local dist = pos1:distance_to_sqr(pos2)
+    local time_in_memory = time_global()
+    local time_since_seen = time_global() - npc:memory_time(enemy)
+    local time_since_last_seen = time_global() - npc:memory_time(enemy)
+    time_table5[npc:id()] = time_global() - npc:memory_time(enemy)
+    if stupid_f[faction] then
+        return true
+    else
+        if is_monster then return false end
+        if enemy_id ~= db.actor:id() then return false end
+        if pure_enemy_distance(npc, enemy) then return false end
+        if last_hit_time[npc:id()] and time_global() - last_hit_time[npc:id()] < 100 then return false end
+        --if table_npc[npc:id()] and time_since_last_seen < 100 and not swicth_table3[npc:id()] then swicth_table3[npc:id()] = true end
+        if verification_npc3[npc:id()] == nil then verification_npc3[npc:id()] = 0 end
+        if time_since_seen < 1500 and dist >= 100 or time_since_last_seen < 1500 and dist >= 100 then
+        return true
+        end
+    return false
+    end
+end

@@ -1,0 +1,68 @@
+-- Initializing a log instance:
+local config = {
+    -- File the "log" target will use.
+    ["file"] = "example.log",
+    -- Targets to log to, and the minimum log level required to trigger them.
+    ["targets"] = {
+        -- "log" uses a seperate logfile, useful if you don't want to scroll through the entire gamelog
+        ["log"]     = dph_debug_log.LOG_LEVEL_INFO,
+        -- "gamelog" is simply the gamelog, this is equivalent to using printf() or similar.
+        ["gamelog"] = dph_debug_log.LOG_LEVEL_WARNING,
+        -- "pda" shows a PDA message to the player. Useful if you immediately want to know when an entry is logged.
+        ["pda"]     = dph_debug_log.LOG_LEVEL_ERROR,
+    }
+}
+-- The logger will only log entries that match one of the defined modules. That means if you for example have an addon
+-- that contains code related to spawns as well as faction relations you can chose 
+local modules = {
+    -- This will match everything starting with "example"
+    "example",
+    -- If your module for example contains code for spawns as well as faction relations, you can chose to just log the entries
+    -- that are relevant to spawns by enabling the module "example/spawn" and disabling "example/relations".
+    -- Here both are initially enabled. Note that this is pointless, since "example" will catch both of these submodules anyway.
+    "example/relations",
+    "example/spawn",
+    -- The module path can be as specific as you want.
+    "example/spawn/mutants",
+}
+-- Here we create a new log instance
+log = dph_debug_log.new(config, modules)
+-- It's disabled by default, calling "log.enable()"" will allows us to start logging, and "log.disable()" will disable logging again.
+log.disable()
+log.enable()
+-- The configuration is public and can be changed while the logger is running. Here we disable PDA logging:
+log.config.targets["pda"] = nil
+-- Registering and unregistering modules works like this:
+log.register_module("example/a")
+log.unregister_module("example/a")
+-- Basic logging takes a variable number of parameters:
+-- 1. the module the entry belongs to.
+-- 2. the string template to use.
+-- 3. A variable number of parameters to insert into the string template
+-- If you used "string.format()" or "printf()" you should be familiar with the syntax.
+log.info("example/spawn", "spawn sucessful for %s!", "example_squad_name")
+log.warn("example/spawn", "spawn failed for %s!", "example_squad_name")
+log.error("example/spawn", "spawn failed horribly for %s due to %s!", "example_squad_name", "some reason")
+-- There's a convenience function for sending a message to the players PDA:
+log.pda("example", "just now %s happened!", "something")
+-- And another one for logging tables:
+local example_table = {
+    ["aaa"] = "foo",
+    ["bbb"] = "foo",
+    ["ccc"] = "foo"
+}
+log.log_table("example/relations", "this is an example table", example_table)
+-- ---
+-- Advanced Usage
+-- ---
+-- We can log to a specific target explicitly:
+log.log_to_target("gamelog", "example/spawn/mutants/dogs", dph_debug_log.LOG_LEVEL_WARNING, "these are too many dogs: %s", 12)
+-- Or define new log targets:
+-- The parameters for the log target function are the same as the ones you'd provide for log.info() and similar.
+log.define_target("gamelog_err", function(mod, level, entry, ...)
+    -- For convenience the standard formatting function is public.
+    local formatted_entry = log.format_entry(mod, level, entry, ...)
+    printe(formatted_entry)
+end)
+-- Now we can use our new target:
+log.log_to_target("gamelog_err", "example/spawn/mutants/dogs", dph_debug_log.LOG_LEVEL_WARNING, "these are too many dogs: %s", 12)

@@ -1,0 +1,366 @@
+-- ===========================================================================================================================
+--[[	Addon: Dynamic News Manager Fixes and Tweaks
+-- ===========================================================================================================================
+ 	
+ 	Author: dEmergence (dEmergence @ ModDB)
+ 	Version: 1.1.1
+	Updated: 20240907
+
+	----------------
+	 Compatibility:
+	----------------
+	
+		This addon is primarily compatible with the vanilla 1.5.1/1.5.2 dynamic_news_manager.script and the extended version:
+			https://www.moddb.com/mods/stalker-anomaly/addons/dialogue-expanded-v4
+		
+		Most addons using a modified dynamic_news_manager.script file should work fine as well, notably:
+			https://www.moddb.com/mods/stalker-anomaly/addons/dialogue-expanded-expanded-152-eng/
+			https://www.moddb.com/mods/stalker-anomaly/addons/ultimate-dialogue-expanded
+	
+	-----------------
+	 Addon Contents:
+	-----------------
+
+		Busy Hands Fix
+			NPC objects are no longer pushed to the message queue, instead their id number is stored and the script attempts
+			to retrieve the object when needed.
+			
+		Broken Spammer Counter Fix
+			NPC/Monster "on_death" messages after the first were suppressed due to spammer counter never increasing.
+			
+		News about UNISG
+			Messages about UNISG in functions such as "npc_on_death_callback" etc. are no longer permanently suppressed 
+			in freeplay or after their reveal within the main LTTZ story.
+		
+		-Suppress repetitive messages-
+			The exact same news message cannot be sent within 30 seconds.
+			Note: function 'is_deja_vu' does not work as intended, disabled until fixed.
+		
+		Message String Sanitizing
+			Instances of Double-spaces in messages should now be removed in all messages passing through send_tip function.
+
+	------------------
+	 Recommendations:
+	------------------
+	
+		Be sure to also check out these fixes provided by other modders ...
+		
+		"Dynamic News Heard Melee Fix" and "Dynamic News Task Gossip Fix" by Tosox:
+			https://www.moddb.com/mods/stalker-anomaly/addons/tosox-mini-mods-repo/
+			
+	------------------
+	 Change Log:
+	------------------
+		
+		1.0.1	Added Checks to avoid send_tip crashes due to empty messages.
+		1.1.0	Replaced dynamic_news_helper.send_tip function entirely to improve chance of string sanitization
+
+-- ========================================================================================================================--]]
+
+settings = {
+	["enable_isg_news_after_story_reveal"] = true,
+	["enable_repetitive_news_filter"] = true,
+	["enable_rn_filter_debug_output"] = true,
+	["rn_filter_message_min_timeout"] = 30000 -- minimum suppression time for one and the same message
+}
+
+local instance = nil
+
+function d_printf(debug_text, source)
+	source = tostring(source)
+	if source == "rnf" and not settings["enable_rn_filter_debug_output"] then return end
+	printf(tostring(debug_text))
+end
+
+orig_TickQuick = dynamic_news_manager.DynamicNewsManager.TickQuick
+dynamic_news_manager.DynamicNewsManager.TickQuick = function(self)
+	if (dynamic_news_manager.enable_news == false) then
+		return true
+	end	
+	instance = instance or dynamic_news_manager.get_dynamic_news()
+	if not instance then
+		printdbg("~dynamic_news_manager_patch: instance not ready yet.")
+		return
+	end
+	if instance.response["who"] and type(instance.response["who"]) == "number" then
+		-- look up npc object by id and convert var to object (if still valid) or just set false and forget it
+		local obj = get_object_by_id(instance.response["who"])
+		if not obj then
+			printdbg("~dynamic_news_manager_patch @ TickQuick : object with id ["..tostring(instance.response["who"]).."] has expired.")
+		else
+			printdbg("-dynamic_news_manager_patch @ TickQuick : retrieved object reference for id ["..tostring(instance.response["who"]).."]")
+		end
+		instance.response["who"] = obj or false
+	end	
+	orig_TickQuick(self)
+end
+
+orig_npc_on_get_all_from_corpse = dynamic_news_manager.DynamicNewsManager.npc_on_get_all_from_corpse
+dynamic_news_manager.DynamicNewsManager.npc_on_get_all_from_corpse = function(self,npc,corpse_npc,item,lootable_table)
+	orig_npc_on_get_all_from_corpse(self,npc,corpse_npc,item,lootable_table)
+	instance = instance or dynamic_news_manager.get_dynamic_news()
+	if not instance then
+		printdbg("~dynamic_news_manager_patch: instance not ready yet.")
+		return
+	end	
+	if instance.response["who"] and not (type(instance.response["who"]) == "number") then
+		if instance.response["who"].id then
+			-- replace object with id number
+			if type(instance.response["who"].id) == "function" then
+				instance.response["who"] = instance.response["who"]:id()
+			else
+				instance.response["who"] = instance.response["who"].id
+			end
+			printdbg("*dynamic_news_manager_patch @ npc_on_get_all_from_corpse : replaced object reference with number for id ["..tostring(instance.response["who"]).."]")
+		end
+	end
+end
+
+message_history = {}
+
+-- v1.1: function 'is_deja_vu' does not work as intended, calls disabled until fixed
+function is_deja_vu(msg)
+	if not msg then return false end
+	if settings["enable_repetitive_news_filter"] then
+		local message_min_timeout = settings["rn_filter_message_min_timeout"] or 30000
+		if message_history[msg] then
+			if (message_history[msg] + message_min_timeout) > time_global() then
+				return true
+			end
+		end
+		message_history[msg] = time_global()
+	end
+	return false
+end
+
+-- v1.1: actually replaced the function as a whole to make string sanitization work for any scenario and to add debug code for further development
+function dynamic_news_helper.send_tip(msg, header, timeout, showtime, sender, sound, icon_by)
+	printdbg("*dynamic_news_manager_patch @ call dynamic_news_helper.send_tip(msg='"..tostring(msg).."',header='"..tostring(header).."',timeout='"..tostring(timeout).."',showtime='"..tostring(showtime).."',sender='"..tostring(sender).."',sound='"..tostring(sound).."',icon_by='"..tostring(icon_by).."')")
+	if not (msg and db.actor) then -- if (actor is dead) and (there is not message)
+		printdbg("!dynamic_news_manager_patch @ dynamic_news_helper.send_tip : msg or db.actor is nil")
+		return false
+	end
+
+	-- v1.1: string sanitization
+	local sane_msg = trim(msg:gsub("  ", " ")) -- sanitize string: remove excess spaces
+	
+	if sane_msg ~= msg then
+		printdbg("-dynamic_news_manager_patch @ dynamic_news_helper.send_tip : string sanitization applied : '"..tostring(sane_msg).."'")
+	end
+	
+	-- v1.1: did not work as intended, disabled until fixed
+	-- if is_deja_vu(msg) then
+		-- d_printf("~dynamic_news_manager_patch @ dynamic_news_helper.send_tip : Repetitive message WOULD be suppressed : "..tostring(msg), "rnf")
+		-- --return
+	-- end
+	
+	msg = "%c[default]" .. game.translate_string(sane_msg)
+	
+	header = header or game.translate_string("st_tip") -- sender name
+	timeout = timeout or 0 
+	showtime = showtime or 7
+	sender = sender or "default" -- faction
+
+	-- v1.1: moved 'icon' section above 'snd' section
+	-- pick icon to show
+	if icon_by=="gr" then
+		ui_sender = news_manager.tips_icons[sender]
+	elseif  icon_by=="npc" then
+		ui_sender = sender
+	elseif icon_by==nil then
+		ui_sender = news_manager.tips_icons[sender]
+	end
+  
+	-- if icon is nil
+	if not (ui_sender) then
+		printdbg("~dynamic_news_manager_patch @ dynamic_news_helper.send_tip : Icon is nil. Message cancelled : "..tostring(msg))
+		return false 
+	end
+	
+	-- sound effect depends on the type of news
+	local function news_snd(snd)
+		if snd =="news" then	
+			xr_sound.set_sound_play(AC_ID, "pda_tips")
+		elseif snd == "danger" then
+			xr_sound.set_sound_play(AC_ID, "pda_alarm")
+		elseif snd == "communication_lost" then
+			xr_sound.set_sound_play(AC_ID, "pda_communication_lost")
+		elseif snd == "beep_1" then
+			xr_sound.set_sound_play(AC_ID, "pda_beep_1")
+		elseif snd == "beep_2" then
+			xr_sound.set_sound_play(AC_ID, "pda_beep_2")
+		elseif snd == "welcome" then
+			xr_sound.set_sound_play(AC_ID, "pda_welcome")
+		elseif snd == nil then
+			xr_sound.set_sound_play(AC_ID, "pda_tips")
+		end
+		return true
+	end
+	if (timeout == 0) then
+		news_snd(sound)
+	else
+		CreateTimeEvent("dynamic_news_snd_delay", math.random(1000), timeout, news_snd, sound)
+	end
+	
+	-- consume PDA power
+	item_device.drain_device_on_event(db.actor:item_in_slot(8), nil, 1)
+
+	-- send the news
+	db.actor:give_game_news(header, msg, ui_sender, timeout*1000, showtime*1000)
+
+	return true
+end
+
+say = false
+
+orig_PushToChannel = dynamic_news_manager.DynamicNewsManager.PushToChannel
+dynamic_news_manager.DynamicNewsManager.PushToChannel = function(self,name,t,fifo)
+	if not (name and t) then
+		printdbg("!dynamic_news_manager_patch @ PushToChannel : name or t is nil")
+		return
+	end
+	if not t.Mg then
+		printdbg("!dynamic_news_manager_patch @ PushToChannel : t.Mg is nil")
+		return
+	end
+	
+	-- v1.1: did not work as intended, disabled until fixed
+	-- Testing if removing escape chars may help:
+	local msg_clean = string.gsub(t.Mg,"\\n","")
+	if is_deja_vu(msg_clean) then
+		d_printf("*dynamic_news_manager_patch @ PushToChannel : Repetitive message WOULD be suppressed : "..tostring(msg_clean), "rnf")
+		--return
+	end
+	
+	if t.Id then
+		if t.Id.id then
+			-- replace object with id number
+			if type(t.Id.id) == "function" then
+				t.Id = t.Id:id()
+			else
+				t.Id = t.Id.id
+			end
+			printdbg("*dynamic_news_manager_patch @ PushToChannel : replaced object reference with number for id ["..tostring(t.Id).."]")
+		end
+	end
+	say = true
+	orig_PushToChannel(self,name,t,fifo)
+end
+
+orig_update_settings = dynamic_news_manager.update_settings
+dynamic_news_manager.update_settings = function(self)
+	orig_update_settings(self)
+	
+	instance = instance or dynamic_news_manager.get_dynamic_news()
+
+	if settings["enable_isg_news_after_story_reveal"] then
+		-- UNISG does not need to be unknown if story has progressed beyond a specific point or is not chosen at all
+		if not (IsStoryMode() and IsStoryPlayer()) or (IsStoryMode() and IsStoryPlayer() and has_alife_info("operation_afterglow_complete")) then
+			instance.unknown["isg"] = false
+			printdbg("*dynamic_news_manager_patch @ update_settings : UNISG is known to stalkers at this point")
+		end
+	end
+end
+
+-- this issue has been fixed in a different way in DFRC 2.2.3, so this should be applied only if that addon is *not* present at all or an outdated version
+-- it checks for 'dfrc_resources' because that was incidentally introduced in that update
+if not dynamic_news_manager_dfrc and not dfrc_resources then
+	printdbg("-dynamic_news_manager_patch: applying patch for monster_on_death_callback and npc_on_death_callback")
+
+	orig_monster_on_death_callback = dynamic_news_manager.DynamicNewsManager.monster_on_death_callback
+	dynamic_news_manager.DynamicNewsManager.monster_on_death_callback = function(self,victim,who)
+		instance = instance or dynamic_news_manager.get_dynamic_news()
+		if not instance then
+			printdbg("~dynamic_news_manager_patch @ monster_on_death_callback : instance not ready yet.")
+			return
+		end
+		printdbg("*dynamic_news_manager_patch @ monster_on_death_callback : show_about_death_mutant == "..tostring(instance.spammer.show_about_death_mutant))
+		orig_monster_on_death_callback(self,victim,who)
+		-- check if pushtochannel was called
+		if (say) or (instance.spammer.show_about_death_mutant ~= 0) then
+			instance.spammer.show_about_death_mutant = instance.spammer.show_about_death_mutant + 1 -- 0,1,2,3,4
+			if (instance.spammer.show_about_death_mutant > 3) then
+				instance.spammer.show_about_death_mutant = 0
+			end
+		end
+		say = false
+	end
+
+	orig_npc_on_death_callback = dynamic_news_manager.DynamicNewsManager.npc_on_death_callback
+	dynamic_news_manager.DynamicNewsManager.npc_on_death_callback = function(self,victim,who)
+		instance = instance or dynamic_news_manager.get_dynamic_news()
+		if not instance then
+			printdbg("~dynamic_news_manager_patch @ npc_on_death_callback : instance not ready yet.")
+			return
+		end	
+		printdbg("*dynamic_news_manager_patch @ npc_on_death_callback : show_about_death == "..tostring(instance.spammer.show_about_death))
+		orig_npc_on_death_callback(self,victim,who)
+		-- check if pushtochannel was called
+		if (say) or (instance.spammer.show_about_death ~= 0) then
+			instance.spammer.show_about_death = instance.spammer.show_about_death + 1 -- 0,1,2,3,4
+			if (instance.spammer.show_about_death > 3) then
+				instance.spammer.show_about_death = 0
+			end
+		end
+		say = false
+	end
+
+end
+
+-- Sanity checks for FindSpeaker functions -- not implemented yet, needs more testing
+
+-- function invalid_db_onlinestalkers()
+	-- if db then
+		-- if db.OnlineStalkers then
+			-- -- catch nil entries (whyever they would even exist)
+			-- for i=1, #db.OnlineStalkers do
+				-- if db.OnlineStalkers[i] == nil then
+					-- printdbg("!ERROR dynamic_news_manager_patch @ FindSpeaker* : Found nil entry in db.OnlineStalkers")
+					-- return true
+				-- end
+			-- end
+			-- return false
+		-- else
+			-- printdbg("!ERROR dynamic_news_manager_patch @ FindSpeaker* : db.OnlineStalkers is nil")
+		-- end
+	-- else
+		-- printdbg("!ERROR dynamic_news_manager_patch @ FindSpeaker* : db is nil")
+	-- end
+	-- return true
+-- end
+
+-- orig_FindSpeakerNoVictim = dynamic_news_manager.DynamicNewsManager.FindSpeakerNoVictim
+-- dynamic_news_manager.DynamicNewsManager.FindSpeakerNoVictim = function(self,who,same_as_who,not_in_combat)
+	-- if invalid_db_onlinestalkers() then return nil end
+	-- orig_FindSpeakerNoVictim(self,who,same_as_who,not_in_combat)
+-- end
+
+-- orig_FindSpeaker = dynamic_news_manager.DynamicNewsManager.FindSpeaker
+-- dynamic_news_manager.DynamicNewsManager.FindSpeaker = function(self,victim,who,same_as_victim,same_as_who,not_in_combat,can_see)
+	-- if invalid_db_onlinestalkers() then return nil end
+	-- orig_FindSpeaker(self,victim,who,same_as_victim,same_as_who,not_in_combat,can_see)
+-- end
+
+-- orig_FindSpeakerWithEnemy = dynamic_news_manager.DynamicNewsManager.FindSpeakerWithEnemy
+-- dynamic_news_manager.DynamicNewsManager.FindSpeakerWithEnemy = function(self,victim,who,same_as_victim,same_as_who,can_see)
+	-- if invalid_db_onlinestalkers() then return nil end
+	-- orig_FindSpeakerWithEnemy(self,victim,who,same_as_victim,same_as_who,can_see)
+-- end
+
+-- orig_FindSpeakerRandom = dynamic_news_manager.DynamicNewsManager.FindSpeakerRandom
+-- dynamic_news_manager.DynamicNewsManager.FindSpeakerRandom = function(self,not_in_combat,speaker_community)
+	-- if invalid_db_onlinestalkers() then return nil end
+	-- orig_FindSpeakerRandom(self,not_in_combat,speaker_community)
+-- end
+
+-- orig_FindSpeakerAndTarget = dynamic_news_manager.DynamicNewsManager.FindSpeakerAndTarget
+-- dynamic_news_manager.DynamicNewsManager.FindSpeakerAndTarget = function(self,not_in_combat,distance,speaker_community)
+	-- if invalid_db_onlinestalkers() then return nil end
+	-- orig_FindSpeakerAndTarget(self,not_in_combat,distance,speaker_community)
+-- end
+
+-- orig_BuildSentenceStalkerEnemy = dynamic_news_manager.DynamicNewsManager.BuildSentenceStalkerEnemy
+-- dynamic_news_manager.DynamicNewsManager.BuildSentenceStalkerEnemy = function(self,victim,who,mn,mx)
+	-- if invalid_db_onlinestalkers() then return false end
+	-- orig_BuildSentenceStalkerEnemy(self,victim,who,mn,mx)
+-- end

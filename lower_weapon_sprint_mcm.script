@@ -1,0 +1,28 @@
+local defaults = {
+    keybind							= DIK_keys.DIK_K,
+    modifier						= 0,
+    mode							= 0,
+	reverse_blacklist               = false,
+    apply_for_all_wpn_variations	= true,
+}
+
+function get_config(key)
+    if ui_mcm then return ui_mcm.get("lower_weapon_sprint/"..key) else return defaults[key] end
+end
+
+function on_mcm_load()
+    opt = {
+        id = "lower_weapon_sprint",
+        sh = true,
+        gr = {
+			{ id = "title", type = "slide", link= "ui_options_slider_player",text="ui_mcm_menu_lower_weapon_sprint", size = {512,50}, spacing = 0},
+            { id = "keybind", type = "key_bind", val = 2, def = DIK_keys.DIK_L },
+            { id = "modifier", type = ui_mcm.kb_mod_radio, val = 2, def = 1, hint = "mcm_kb_modifier", content = { { 0, "mcm_kb_mod_none" }, { 1, "mcm_kb_mod_shift" }, { 3, "mcm_kb_mod_alt" } } },
+			{ id = "mode", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_kb_mode", content = { { 0, "mcm_kb_mode_press" }, { 1, "mcm_kb_mode_dtap" }, { 2, "mcm_kb_mode_hold" } } },
+			{ id = "reverse_blacklist", type = "check", val = 1, def = false},
+			{ id = "apply_for_all_wpn_variations", type = "check", val = 1, def = true},
+			{ id = "clear_blacklist", type = "check", val = 1, def = false},
+        }
+    }
+    return opt
+end
