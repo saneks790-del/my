@@ -1,0 +1,84 @@
+local cig_items = {
+    cigar1 = true,
+    cigar2 = true,
+    cigar3 = true,
+    cigarettes = true,
+    cigarettes_lucky = true,
+    cigarettes_russian = true,
+}
+
+local max_quick_slots = 5
+local current_slot = 0
+local pending_save = nil
+local save_file = "cig_save.txt"
+
+local function load_slot()
+    local f = io.open(save_file, "r")
+    if f then
+        local v = tonumber(f:read("*all"))
+        if v then current_slot = v end
+        f:close()
+    end
+end
+
+local function save_slot()
+    local f = io.open(save_file, "w")
+    if f then
+        f:write(tostring(current_slot))
+        f:close()
+    end
+end
+
+local function on_actor_update(delta)
+    if pending_save and time_global() >= pending_save.time then
+        local save_name = pending_save.name
+        exec_console_cmd("save " .. save_name)
+        current_slot = (current_slot + 1) % max_quick_slots
+        save_slot()
+        pending_save = nil
+    end
+end
+
+local function on_item_use(obj)
+    if not obj then return end
+    local sec = obj:section()
+    
+    -- ЕСЛИ ЭТО СИГАРЕТЫ - делаем автосохранение
+    if cig_items[sec] then
+        local actor_name = db.actor:character_name() or "player"
+        local save_name = string.format("%s_%d", actor_name, current_slot + 1)
+
+        pending_save = { name = save_name, time = time_global() + 6000 }
+        return  -- Блокируем дальнейшую обработку для сигарет
+    end
+    
+    -- ЕСЛИ ЭТО СПИЧКИ - пропускаем для костров
+    if (sec == "matches") or (sec == "box_matches") then
+        return  -- Разрешаем стандартную обработку скриптом костров
+    end
+end
+
+-- БЛОКИРУЕМ ТОЛЬКО МЕНЮШНЫЕ СОХРАНЕНИЯ, НО РАЗРЕШАЕМ КОСТРЫ
+function on_before_save_input(flags, typ_, text)
+    -- Разрешаем сохранения у костра и быстрые сохранения
+    if typ_ == "campfire" or typ_ == "bonfire" or typ_ == "quick" then
+        return  -- Пропускаем стандартную обработку
+    end
+    
+    -- Блокируем только сохранения через меню (Esc -> Сохранить)
+    if typ_ == "menu" then
+        flags.ret = true
+    end
+end
+
+function on_game_start()
+    load_slot()
+    
+    -- ОТКЛЮЧАЕМ СТАНДАРТНЫЕ КЛАВИШИ СОХРАНЕНИЯ
+    exec_console_cmd("bind kF5 \"\"")  -- Отключаем F5
+    exec_console_cmd("bind kF6 \"\"")  -- Отключаем F6
+    
+    RegisterScriptCallback("actor_on_item_use", on_item_use)
+    RegisterScriptCallback("actor_on_update", on_actor_update)
+    RegisterScriptCallback("on_before_save_input", on_before_save_input)
+end

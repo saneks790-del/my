@@ -1,0 +1,78 @@
+-- Пси-аура для бюрера
+function burer_psi_aura()
+    local burer = nil
+    local aura_active = false
+    local aura_timer = 0
+    local damage_timer = 0
+    
+    while true do
+        -- Ищем бюрера в радиусе 50 метров от игрока
+        local actor = db.actor
+        if actor then
+            local npcs = level.get_npcs_in_radius(actor:position(), 50.0)
+            
+            for _, npc in pairs(npcs) do
+                if npc:section() == "m_stalker_burer" or npc:section() == "burer" then
+                    burer = npc
+                    break
+                end
+            end
+            
+            -- Если нашли бюрера и он жив
+            if burer and burer:alive() then
+                local distance = actor:position():distance_to(burer:position())
+                
+                -- Активируем ауру если игрок близко
+                if distance <= 12.0 and not aura_active then
+                    aura_active = true
+                    level.add_pp_effector("psycho.ppe", 151, false)
+                    burer:play_sound("monsters\\burer\\burer_psycho_aura")
+                    printf("PSI AURA: Activated")
+                end
+                
+                -- Деактивируем если игрок далеко
+                if distance > 15.0 and aura_active then
+                    aura_active = false
+                    level.remove_pp_effector(151)
+                    printf("PSI AURA: Deactivated")
+                end
+                
+                -- Наносим урон если в ауре
+                if aura_active then
+                    aura_timer = aura_timer + 1
+                    damage_timer = damage_timer + 1
+                    
+                    -- Эффекты каждые 2 секунды
+                    if aura_timer >= 4 then
+                        level.add_cam_effector("camera_effects\\psycho.anm", 152, false, "")
+                        actor:play_sound("monsters\\controller\\attack_hit")
+                        aura_timer = 0
+                    end
+                    
+                    -- Урон каждые 3 секунды
+                    if damage_timer >= 6 then
+                        local health = actor:health()
+                        local new_health = health - 0.08 -- 8% урона
+                        
+                        if new_health > 0.1 then
+                            actor:set_health(new_health)
+                            news_manager.send_tip(actor, "ПСИ-АУРА: Потеря здоровья!", 2000, 1000)
+                        end
+                        
+                        damage_timer = 0
+                    end
+                end
+            else
+                -- Деактивируем если бюрер умер или исчез
+                if aura_active then
+                    aura_active = false
+                    level.remove_pp_effector(151)
+                    printf("PSI AURA: Burer died - deactivated")
+                end
+                burer = nil
+            end
+        end
+        
+        wait(500) -- Проверка каждые 0.5 секунды
+    end
+end

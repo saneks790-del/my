@@ -1,0 +1,13 @@
+-- Главный скрипт для способностей бюрера
+function init_burer_abilities()
+    printf("Burer Abilities: Initializing...")
+    
+    -- Ждем загрузки игры
+    wait(10000)
+    
+    -- Запускаем системы
+    burer_psi_aura()
+    enhanced_tele_damage()
+    
+    printf("Burer Abilities: Started successfully")
+end

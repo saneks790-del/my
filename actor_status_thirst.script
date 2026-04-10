@@ -1,0 +1,172 @@
+-- >>> [Thirst] Script loaded <<<
+actor_status_thirst = actor_status_thirst or {}
+
+-- Локальные переменные
+local last_drink = 0
+local feature_state = false
+local last_check_time = nil
+local thirst_blackout_lock = 0
+
+-- Пороги индикации
+local TH_GRAY, TH_YELLOW, TH_ORANGE, TH_RED, TH_FORCE = 1440, 2880, 4320, 5760, 7200
+local UP, INTV, PER_H, MUL = 60, 300, 300, 1000
+local PWR, RNG, DIE = -0.00002, 0.06, 0.01
+local log = printf or function() end
+
+-------------------------------------------------------------------
+-- ПУБЛИЧНЫЕ ФУНКЦИИ (ОБЯЗАТЕЛЬНЫ ДЛЯ ui_inventory.script)
+-------------------------------------------------------------------
+function actor_status_thirst.get_water_deprivation(visual)
+    if not feature_state or last_drink == 0 then return 0 end
+    if visual then
+        if last_drink <= TH_GRAY then return 0
+        elseif last_drink <= TH_YELLOW then return 1
+        elseif last_drink <= TH_ORANGE then return 2
+        elseif last_drink <= TH_RED then return 3
+        else return 4 end
+    end
+    local v = last_drink / 10000
+    return (v < 0 and 0) or (v > 1 and 1) or v
+end
+
+function actor_status_thirst.get_last_drink()
+    return last_drink or 0
+end
+
+-- Эту функцию требует ui_inventory.script для расчёта UI
+function actor_status_thirst.get_thirst_blur_4()
+    return TH_RED -- 5760
+end
+
+-- Дополнительные геттеры на случай, если UI запросит другие пороги
+function actor_status_thirst.get_thirst_blur_1() return TH_GRAY end
+function actor_status_thirst.get_thirst_blur_2() return TH_YELLOW end
+function actor_status_thirst.get_thirst_blur_3() return TH_ORANGE end
+
+-- Переключатель механики (для меню настроек сборки)
+function actor_status_thirst.toggle_feature(val)
+    if val and not feature_state then
+        actor_status_thirst.create()
+    elseif not val and feature_state then
+        actor_status_thirst.destroy()
+    end
+end
+
+-------------------------------------------------------------------
+-- ВНУТРЕННЯЯ ЛОГИКА
+-------------------------------------------------------------------
+local function _apply_effects()
+    if not db.actor or not db.actor:alive() then return end
+
+    -- Штрафы к выносливости/здоровью
+    if last_drink > TH_YELLOW then
+        local d = PWR * ((last_drink - TH_GRAY) * RNG) / 10
+        db.actor:change_power(d)
+        db.actor:change_health(d / 10)
+    end
+
+    -- Помутнение экрана
+    if last_drink > TH_GRAY then
+        local f = math.min((last_drink - TH_GRAY) / 1000, 1.0)
+        if f > 0.05 then
+            level.add_pp_effector("yantar_underground_psi.ppe", 39568, false)
+            level.set_pp_effector_factor(39568, f)
+        else
+            level.remove_pp_effector(39568)
+        end
+    else
+        level.remove_pp_effector(39568)
+    end
+
+    -- ⚡ ОБМОРОК (без циклов)
+    if last_drink >= TH_FORCE and not db.actor:has_info("actor_is_sleeping") and time_global() > thirst_blackout_lock then
+        thirst_blackout_lock = time_global() + 5000 -- 🔒 Блокировка на 5 сек реального времени
+        last_drink = TH_YELLOW + 200               -- 📉 Мгновенный сброс ниже порога
+
+        db.actor:give_info_portion("force_slp")
+        pcall(function()
+            if ui_sleep_dialog and ui_sleep_dialog.sleep_forced then ui_sleep_dialog.sleep_forced() end
+        end)
+        
+        -- Исправлен расчёт шанса (DIE=0.01 = 1%)
+        if math.random() < DIE and db.actor:alive() then
+            db.actor:kill(db.actor)
+            log("[Thirst] Player died from dehydration")
+        end
+        db.actor:disable_info_portion("force_slp")
+    end
+end
+
+local function _on_update()
+    if not feature_state then return end
+    local t = game.get_game_time()
+    if last_check_time and t:diffSec(last_check_time) < INTV then
+        _apply_effects()
+        return
+    end
+    last_check_time = t
+    last_drink = last_drink + UP
+    if last_drink > 10000 then last_drink = 10000 end
+    _apply_effects()
+end
+
+local function _on_sleep(h)
+    if not feature_state or db.actor:has_info("force_slp") then return end
+    last_drink = last_drink + (tonumber(h) or 0) * PER_H
+    if last_drink > 10000 then last_drink = 10000 end
+    _apply_effects()
+end
+
+local function _on_use(itm)
+    if not feature_state or not itm then return end
+    local sec = itm:section()
+    local ini = system_ini()
+    if ini and ini:section_exist(sec) then
+        local v = ini:r_float(sec, "eat_thirstiness")
+        if v and v ~= 0 then
+            last_drink = last_drink + (v * MUL)
+            if last_drink < 0 then last_drink = 0 elseif last_drink > 10000 then last_drink = 10000 end
+            _apply_effects()
+        end
+    end
+end
+
+-------------------------------------------------------------------
+-- РЕГИСТРАЦИЯ
+-------------------------------------------------------------------
+function actor_status_thirst.create()
+    log("[Thirst] Feature enabled")
+    feature_state = true
+    RegisterScriptCallback("actor_on_update", _on_update)
+    RegisterScriptCallback("actor_on_item_use", _on_use)
+    RegisterScriptCallback("actor_on_sleep", _on_sleep)
+
+    if actor_status and type(actor_status.add_indicator) == "function" then
+        actor_status.add_indicator("Thirst", {
+            index=12, typ="state", functor={"actor_status_thirst","get_water_deprivation",true},
+            icon="ui_owa_empty_icon", background="ui_owa_drink_icon",
+            anim_icon=false, anim_bk=false
+        })
+    end
+end
+
+function actor_status_thirst.destroy()
+    log("[Thirst] Feature disabled")
+    feature_state = false
+    UnregisterScriptCallback("actor_on_update", _on_update)
+    UnregisterScriptCallback("actor_on_item_use", _on_use)
+    UnregisterScriptCallback("actor_on_sleep", _on_sleep)
+    if actor_status and type(actor_status.add_indicator) == "function" then
+        actor_status.add_indicator("Thirst", nil)
+    end
+end
+
+function save_state(m) if feature_state then m.thirst_val = last_drink end end
+function load_state(m) if m and m.thirst_val then last_drink = tonumber(m.thirst_val) or 0 end end
+
+function on_game_start()
+    log("[Thirst] on_game_start called")
+    RegisterScriptCallback("save_state", save_state)
+    RegisterScriptCallback("load_state", load_state)
+    actor_status_thirst.create()
+end

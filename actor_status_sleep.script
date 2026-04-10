@@ -1,0 +1,165 @@
+-- >>> [Sleep] Script loaded <<<
+actor_status_sleep = actor_status_sleep or {}
+
+-- Локальные переменные
+local last_sleep = 0
+local feature_state = false
+local last_check_time = nil
+
+-- Пороги индикации
+local TH_GRAY, TH_YELLOW, TH_ORANGE, TH_RED, TH_FORCE = 5000, 6250, 7500, 8750, 9000
+local UP, INTV, PER_H, MUL = 27, 200, 390, 1000
+local log = printf or function() end
+
+-------------------------------------------------------------------
+-- ПУБЛИЧНЫЕ ФУНКЦИИ (ОБЯЗАТЕЛЬНЫ ДЛЯ ui_inventory.script)
+-------------------------------------------------------------------
+function actor_status_sleep.get_sleep_deprivation(visual)
+    if not feature_state or last_sleep == 0 then return 0 end
+    if visual then
+        if last_sleep <= TH_GRAY then return 0
+        elseif last_sleep <= TH_YELLOW then return 1
+        elseif last_sleep <= TH_ORANGE then return 2
+        elseif last_sleep <= TH_RED then return 3
+        else return 4 end
+    end
+    local v = last_sleep / 10000
+    return (v < 0 and 0) or (v > 1 and 1) or v
+end
+
+function actor_status_sleep.get_last_sleep() return last_sleep or 0 end
+function actor_status_sleep.get_sleep_blur_1() return TH_GRAY end
+function actor_status_sleep.get_sleep_blur_2() return TH_YELLOW end
+function actor_status_sleep.get_sleep_blur_3() return TH_ORANGE end
+function actor_status_sleep.get_sleep_blur_4() return TH_RED end
+
+function actor_status_sleep.toggle_feature(val)
+    if val and not feature_state then actor_status_sleep.create()
+    elseif not val and feature_state then actor_status_sleep.destroy() end
+end
+
+-------------------------------------------------------------------
+-- ВНУТРЕННЯЯ ЛОГИКА
+-------------------------------------------------------------------
+local function _apply_effects()
+    if not db.actor or not db.actor:alive() then return end
+
+    -- 1. Штраф к регенерации выносливости (постоянный микро-дрейн)
+    if last_sleep > TH_GRAY then
+        local factor = (last_sleep - TH_GRAY) / (TH_FORCE - TH_GRAY)
+        if factor < 0 then factor = 0 elseif factor > 1 then factor = 1 end
+        
+        local base_drain = 0.0000   -- Мин. торможение
+        local max_drain  = 0.0000   -- Полная блокировка регена
+        local penalty = base_drain + (max_drain - base_drain) * factor
+        
+        db.actor:change_power(-penalty)
+        
+        -- Лёгкий урон здоровью при сильной усталости
+        if last_sleep > TH_YELLOW then
+            db.actor:change_health(-penalty * 0.0)
+        end
+    end
+
+    -- 2. Визуальное помутнение (ID 39569, чтобы не конфликтовать с жаждой 39568)
+    if last_sleep > TH_GRAY then
+        local f = math.min((last_sleep - TH_GRAY) / 1000, 1.0)
+        if f > 0.05 then
+            level.add_pp_effector("yantar_underground_psi.ppe", 39569, false)
+            level.set_pp_effector_factor(39569, f)
+        else
+            level.remove_pp_effector(39569)
+        end
+    else
+        level.remove_pp_effector(39569)
+    end
+
+    -- 3. Принудительный сон / риск смерти
+    if last_sleep >= TH_FORCE and not db.actor:has_info("actor_is_sleeping") then
+        db.actor:give_info_portion("force_slp2")
+        pcall(function()
+            if ui_sleep_dialog and ui_sleep_dialog.sleep_forced then ui_sleep_dialog.sleep_forced() end
+        end)
+        if math.random(100) < 5 and db.actor:alive() then
+            db.actor:kill(db.actor)
+            log("[Sleep] Player died from exhaustion")
+        end
+        db.actor:disable_info_portion("force_slp2")
+    end
+end
+
+local function _on_update()
+    if not feature_state or not db.actor or not db.actor:alive() then return end
+    
+    local t = game.get_game_time()
+    if not last_check_time or t:diffSec(last_check_time) >= INTV then
+        last_check_time = t
+        last_sleep = last_sleep + UP
+        if last_sleep > 10000 then last_sleep = 10000 end
+    end
+    _apply_effects()
+end
+
+local function _on_sleep(h)
+    if not feature_state or db.actor:has_info("force_slp2") then return end
+    local hours = tonumber(h) or 0
+    last_sleep = last_sleep - hours * PER_H
+    if last_sleep < 0 then last_sleep = 0 end
+    db.actor:change_health(0.02 * hours) -- Бонус к здоровью за сон
+    _apply_effects()
+end
+
+local function _on_use(itm)
+    if not feature_state or not itm then return end
+    local sec = itm:section()
+    local ini = system_ini()
+    if ini and ini:section_exist(sec) then
+        local v = ini:r_float(sec, "eat_sleepiness")
+        if v and v ~= 0 then
+            last_sleep = last_sleep + (v * MUL)
+            if last_sleep < 0 then last_sleep = 0 elseif last_sleep > 10000 then last_sleep = 10000 end
+            _apply_effects()
+        end
+    end
+end
+
+-------------------------------------------------------------------
+-- РЕГИСТРАЦИЯ
+-------------------------------------------------------------------
+function actor_status_sleep.create()
+    log("[Sleep] Feature enabled")
+    feature_state = true
+    RegisterScriptCallback("actor_on_update", _on_update)
+    RegisterScriptCallback("actor_on_item_use", _on_use)
+    RegisterScriptCallback("actor_on_sleep", _on_sleep)
+
+    if actor_status and type(actor_status.add_indicator) == "function" then
+        actor_status.add_indicator("Sleep", {
+            index=4, typ="state", functor={"actor_status_sleep","get_sleep_deprivation",true},
+            icon="ui_owa_empty_icon", background="ui_owa_sleep_icon",
+            anim_icon=false, anim_bk=false
+        })
+    end
+end
+
+function actor_status_sleep.destroy()
+    log("[Sleep] Feature disabled")
+    feature_state = false
+    UnregisterScriptCallback("actor_on_update", _on_update)
+    UnregisterScriptCallback("actor_on_item_use", _on_use)
+    UnregisterScriptCallback("actor_on_sleep", _on_sleep)
+    if actor_status and type(actor_status.add_indicator) == "function" then
+        actor_status.add_indicator("Sleep", nil)
+    end
+end
+
+-- Сохранение/Загрузка
+function save_state(m) if feature_state then m.sleep_val = last_sleep end end
+function load_state(m) if m and m.sleep_val then last_sleep = tonumber(m.sleep_val) or 0 end end
+
+function on_game_start()
+    log("[Sleep] on_game_start called")
+    RegisterScriptCallback("save_state", save_state)
+    RegisterScriptCallback("load_state", load_state)
+    actor_status_sleep.create()
+end

@@ -1,0 +1,31 @@
+function have_artjaw(first_speaker, second_speaker)
+    local has_artifact = mlr_utils.have_item('agrbox', 1) 
+    local has_jaws = mlr_utils.have_item('x18quest', 1)
+    
+    return has_artifact and has_jaws
+end
+
+function take_artjaw(first_speaker, second_speaker)
+    dialogs.relocate_item_section_from_actor(first_speaker, second_speaker, "agrbox",1)
+    dialogs.relocate_item_section_from_actor(first_speaker, second_speaker, "x18quest",1)
+end
+
+function spawn_seva(first_speaker, second_speaker)
+	dialogs.relocate_item_section_to_actor(first_speaker, second_speaker, "trenchcoat_seva_outfit", 1)
+end
+
+function flash_give_quest()      
+         task_manager.get_task_manager():give_task("suitquest")         
+end
+
+function spawn_kurt(first_speaker, second_speaker)
+	dialogs.relocate_item_section_to_actor(first_speaker, second_speaker, "novice_outfit", 1)
+end
+
+function have_money(money)
+	return mlr_utils.have_money(2000)
+end
+
+function tischa(first_speaker, second_speaker, money)
+	dialogs.relocate_money_from_actor(first_speaker, second_speaker, 2000)
+end

@@ -1,0 +1,395 @@
+--[[
+    Tronex HUD Indicators + Gasmask Integration (STABLE & FIXED)
+    Исправлено: пропадающие индикаторы, отсутствие окраски, ошибки цикла
+--]]
+
+local tg_update = 0
+local tg_update_step = 1000 --[ms]
+
+----------------------------------
+--	Current Boosters and states
+----------------------------------
+local active_boosters = {}
+local boost_name = {}
+function prepare_boosters_effect()
+	boost_name = invert_table(BoosterID)
+end
+function scan_boosters_effect()
+	for name,t in pairs(active_boosters) do
+		t.value = nil
+		t.period = nil
+	end
+	if db.actor then
+		db.actor:cast_Actor():conditions():BoosterForEach( scan_current_booster_effect )
+	end
+end
+function scan_current_booster_effect(typ, period, value)
+	active_boosters[ boost_name[typ] ] = { value=value , period=period }
+end
+
+function get_boost(name, time_only)
+	if time_only then
+		return active_boosters[name] and active_boosters[name].period
+	end
+	return active_boosters[name] and active_boosters[name].value
+end
+
+function get_satienty(visual)
+	if not db.actor then return 0 end
+	local satienty = db.actor:cast_Actor():conditions():GetSatiety()
+	if not visual then return satienty end
+	if satienty > 0.9 then return 0
+	elseif satienty > 0.7 then return 1
+	elseif satienty > 0.5 then return 2
+	elseif satienty > 0.3 then return 3
+	else return 4 end
+end
+
+function get_psy_visual(visual)
+	if not db.actor then return 0 end
+	local psy_health = 0.9
+	if arszi_psy and type(arszi_psy.get_psy_health) == "function" then
+		psy_health = arszi_psy.get_psy_health() or 0.9
+	end
+	if not visual then return psy_health end
+	if psy_health > 0.9 then return 0
+	elseif psy_health > 0.7 then return 1
+	elseif psy_health > 0.5 then return 2
+	elseif psy_health > 0.3 then return 3
+	else return 4 end
+end
+
+function get_radiation(visual)
+	if not db.actor then return 0 end
+	local rad = db.actor.radiation or 0
+	if not visual then return rad end
+	return rad > 0 and math.ceil(rad * 4) or 0
+end
+
+function get_bleeding(visual)
+	if not db.actor then return 0 end
+	local bleed = db.actor.bleeding or 0
+	if not visual then return bleed end
+	if bleed > 0 then
+		if bleed > 0.7 then return 4
+		elseif bleed > 0.5 then return 3
+		elseif bleed > 0.3 then return 2
+		else return 1 end
+	end
+	return 0
+end
+
+function get_overweight(visual)
+	if not db.actor then return false, 0, 0 end
+	local actor = db.actor
+	local tot_weight = actor:get_total_weight()
+	local max_weight = actor:get_actor_max_walk_weight()
+	
+	local outfit = actor:item_in_slot(7)
+	local backpack = actor:item_in_slot(13)
+	max_weight = max_weight + (outfit and outfit:get_additional_max_weight() or 0)
+	max_weight = max_weight + (backpack and backpack:get_additional_max_weight() or 0)
+	actor:iterate_belt( function(owner, obj)
+		local c_arty = obj:cast_Artefact()
+		max_weight = max_weight + (c_arty and c_arty:AdditionalInventoryWeight() or 0)
+	end)
+
+	if not visual then return (tot_weight > max_weight), tot_weight, max_weight end
+	if tot_weight > max_weight then return 4
+	elseif tot_weight + 15 > max_weight then return 2 end
+	return 0
+end
+
+----------------------------------
+--	Current safe cover
+----------------------------------
+local safe_covers = {}
+local near_cover_dist, last_cover, last_cover_2, near_cover, last_cover_o, near_cover_o
+
+function prepare_safe_zone()
+	local sur_ini = ini_file("misc\\surge_manager.ltx")
+	local safe_covers_list = utils_data.collect_section(sur_ini,"list",true)
+	local sim = alife()
+	local is_on_the_actor_level = simulation_objects.is_on_the_actor_level
+	for i=1, 65534 do
+		local se_obj = sim:object(i)
+		if se_obj and safe_covers_list[se_obj:name()] and is_on_the_actor_level(se_obj) then
+			safe_covers[se_obj:name()] = se_obj.id
+		end
+	end
+end
+
+function scan_safe_zone_old()
+	if GetEvent("underground") then return true, false, 0 end
+	if last_cover_o and db.zone_by_name[last_cover_o] and db.zone_by_name[last_cover_o]:inside(db.actor:position()) then
+		return safe_covers[last_cover_o], false, 2
+	end
+	local pos = db.actor:position()
+	last_cover_o = nil
+	near_cover_o = nil
+	near_cover_dist = nil
+	for name,id in pairs(safe_covers) do
+		local zone = db.zone_by_name[name]
+		if zone then
+			local dist = zone:position():distance_to_sqr(pos)
+			if not near_cover_dist or dist < near_cover_dist then 
+				near_cover_o = name
+				near_cover_dist = dist
+			end
+		end
+	end
+	if near_cover_o then
+		local zone = db.zone_by_name[near_cover_o]
+		if zone and zone:inside(pos) then
+			last_cover_o = near_cover_o
+			return zone:id(), false, 4
+		end
+	end
+	if item_tent and item_tent.get_nearby_tent(1.5) then
+		return true, near_cover_o and safe_covers[near_cover_o] or false, 5
+	end
+	return false, near_cover_o and safe_covers[near_cover_o] or false, 6
+end
+
+----------------------------------
+--	Gasmask Integration
+----------------------------------
+function get_gasmask_status(visual)
+	if not visual or not db.actor then return 0 end
+	local icon_state = 0
+	if headgear_animations_mcm and type(headgear_animations_mcm.get_config) == "function" then
+		icon_state = headgear_animations_mcm.get_config("icon_state") or 0
+	end
+	if icon_state == 0 then return 0 end
+
+	local has_helmet = false
+	if db.actor:item_in_slot(12) then has_helmet = true
+	else
+		local o_outfit = db.actor:item_in_slot(7)
+		if o_outfit then
+			local c_outfit = o_outfit:cast_CustomOutfit()
+			if c_outfit and not c_outfit.bIsHelmetAvaliable then has_helmet = true end
+		end
+	end
+
+	-- Возвращаем строго 1 (зелёный) или 0 (скрыто)
+	if icon_state == 1 then return has_helmet and 1 or 0
+	elseif icon_state == 2 then return has_helmet and 0 or 1 end
+	return 0
+end
+
+----------------------------------
+--	HUD (Indicators)
+----------------------------------
+HUD = nil
+indicators = {}
+
+function prepare_indictors_list()
+	if next(indicators) then return end
+
+	-- Оригинальный формат: {"скрипт", "функция", аргументы...}
+	indicators["Radiation"]       	    = { index= 1, typ= "state", functor= {"actor_status","get_radiation",true}, icon= "ui_owa_empty_icon", background= "ui_owa_radiation_icon", anim_icon= true, anim_bk= false }
+	indicators["Hunger"]                = { index= 2, typ= "state", functor= {"actor_status","get_satienty",true}, icon= "ui_owa_empty_icon", background= "ui_owa_hunger_icon", anim_icon= false, anim_bk= false }
+	indicators["Bleeding"]              = { index= 3, typ= "state", functor= {"actor_status","get_bleeding",true}, icon= "ui_owa_empty_icon", background= "ui_owa_bleeding_icon", anim_icon= false, anim_bk= false }
+	indicators["Psychic"]               = { index= 3, typ= "state", functor= {"actor_status","get_psy_visual",true}, icon= "ui_owa_empty_icon", background= "ui_owa_brainblast_icon", anim_icon= false, anim_bk= false }
+	indicators["HpRestore"]             = { index= 4, typ= "booster", functor= {"actor_status","get_boost","HpRestore",true}, icon= "ui_owa_empty_icon", background= "ui_owa_health_restore_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["Overweight"]            = { index= 5, typ= "state", functor= {"actor_status","get_overweight",true}, icon= "ui_owa_empty_icon", background= "ui_owa_overweight_icon", anim_icon= false, anim_bk= false }
+	indicators["BleedingRestore"]       = { index= 5, typ= "booster", functor= {"actor_status","get_boost","BleedingRestore",true}, icon= "ui_owa_empty_icon", background= "ui_owa_bleeding_restore_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["RadiationRestore"]      = { index= 6, typ= "booster", functor= {"actor_status","get_boost","RadiationRestore",true}, icon= "ui_owa_empty_icon", background= "ui_owa_radiation_restore_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["MaxWeight"]             = { index= 7, typ= "booster", functor= {"actor_status","get_boost","MaxWeight",true}, icon= "ui_owa_empty_icon", background= "ui_owa_weightboost_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["PowerRestore"]          = { index= 8, typ= "booster", functor= {"actor_status","get_boost","PowerRestore",true}, icon= "ui_owa_empty_icon", background= "ui_owa_sprintboost_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["RadiationProtection"]   = { index= 9, typ= "booster", functor= {"actor_status","get_boost","RadiationProtection",true}, icon= "ui_owa_empty_icon", background= "ui_owa_radiation_protect_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["TelepaticProtection"]   = { index= 10, typ= "booster", functor= {"actor_status","get_boost","TelepaticProtection",true}, icon= "ui_owa_empty_icon", background= "ui_owa_brainblast_protect_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["ChemicalBurnProtection"]= { index= 11, typ= "booster", functor= {"actor_status","get_boost","ChemicalBurnProtection",true}, icon= "ui_owa_empty_icon", background= "ui_owa_chem_protect_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["BurnImmunity"]          = { index= 11, typ= "booster", functor= {"actor_status","get_boost","BurnImmunity",true}, icon= "ui_owa_empty_icon", background= "ui_owa_flame_protect_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["ShockImmunity"]         = { index= 11, typ= "booster", functor= {"actor_status","get_boost","ShockImmunity",true}, icon= "ui_owa_empty_icon", background= "ui_owa_shock_protect_icon", anim_icon= false, anim_bk= false, anim_period= 5 }
+	indicators["Thirst"]                = { index= 12, typ= "state", functor= {"actor_status_thirst","get_water_deprivation",true}, icon= "ui_owa_empty_icon", background= "ui_owa_drink_icon", anim_icon= false, anim_bk= false }
+	indicators["Sleep"]                 = { index= 13, typ= "state", functor= {"actor_status_sleep","get_sleep_deprivation",true}, icon= "ui_owa_empty_icon", background= "ui_owa_sleep_icon", anim_icon= false, anim_bk= false }
+	
+	indicators["Gasmask"]               = { index= 14, typ= "state", functor= {"actor_status","get_gasmask_status",true}, icon= "ui_owa_empty_icon", background= "ui\\headgear_indicator\\StatusGasmask.dds", anim_icon= false, anim_bk= false }
+end
+
+function add_indicator(k,v)
+	prepare_indictors_list()
+	indicators[k] = v
+end
+
+function func_index(t,a,b)
+	return (t[a].index) < (t[b].index)
+end
+
+-------
+function activate_hud()
+	RegisterScriptCallback("actor_on_net_destroy", actor_on_net_destroy)
+	RegisterScriptCallback("on_console_execute", on_console_execute)
+	RegisterScriptCallback("GUI_on_show", update_hud)
+	RegisterScriptCallback("GUI_on_hide", update_hud)
+	RegisterScriptCallback("on_option_change", on_gasmask_option_change)
+	
+	if HUD == nil then
+		HUD = UIIndicators()
+		get_hud():AddDialogToRender(HUD)
+	end
+	HUD:Update(true)
+end
+
+function deactivate_hud()
+	if HUD ~= nil then
+		get_hud():RemoveDialogToRender(HUD)
+		HUD = nil
+	end
+	UnregisterScriptCallback("actor_on_net_destroy", actor_on_net_destroy)
+	UnregisterScriptCallback("on_console_execute", on_console_execute)
+	UnregisterScriptCallback("GUI_on_show", update_hud)
+	UnregisterScriptCallback("GUI_on_hide", update_hud)
+	UnregisterScriptCallback("on_option_change", on_gasmask_option_change)
+end
+
+function update_hud()
+	if HUD ~= nil then HUD:Update(true) end
+end
+
+function actor_on_net_destroy()
+	if HUD ~= nil then
+		get_hud():RemoveDialogToRender(HUD)
+		HUD = nil
+	end
+end
+
+function on_console_execute(name)
+	if name == "hud_draw" and HUD then HUD:Update(true) end
+end
+
+function on_gasmask_option_change()
+	if HUD and HUD.dialog then HUD:Update(true) end
+end
+
+-------
+class "UIIndicators" (CUIScriptWnd)
+
+function UIIndicators:__init() super()
+	self.mirrored = false
+	self.slot = {}
+	self.clr_list = {
+		[0] = GetARGB(255,100,255,255), -- blue
+		[1] = GetARGB(255,76,255,0),    -- green
+		[2] = GetARGB(255,255,216,0),   -- yellow
+		[3] = GetARGB(255,255,106,0),   -- orange
+		[4] = GetARGB(255,255,0,0),     -- red
+	}
+	self.ratio  = utils_xml.screen_ratio()
+	self._tmr   = time_global()
+	self.index  = 0
+	self.W      = 40
+	self.offset = 15
+	prepare_indictors_list()
+	self:InitControls()
+end
+
+function UIIndicators:InitControls()
+	local xml = utils_xml.get_hud_xml()
+	self.dialog = xml:InitStatic("indicators", self)
+	self.dialog:Show(false)
+	local t_size = size_table(indicators)
+	for i=1,t_size do
+		local x = (i-1)*(self.W + self.offset)
+		if self.mirrored then x = (1-i)*(self.W + self.offset) end
+		self.slot[i] = {}
+		self.slot[i].back_s = xml:InitStatic("indicators:static", self.dialog)
+		self.slot[i].back_f = xml:InitStatic("indicators:flashing", self.dialog)
+		self.slot[i].icon_s = xml:InitStatic("indicators:static", self.dialog)
+		self.slot[i].icon_f = xml:InitStatic("indicators:flashing", self.dialog)
+		for k, ele in pairs(self.slot[i]) do
+			ele:SetWndPos( vector2():set( x , 0 ) )
+			utils_xml.correct_ratio(ele)
+		end
+	end
+end
+
+function UIIndicators:Clear()
+	for i=1,#self.slot do
+		for k, ele in pairs(self.slot[i]) do ele:Show(false) end
+	end
+	self.index = 0
+end
+
+-- 🔑 КРИТИЧЕСКИ ИСПРАВЛЕННЫЙ МЕТОД ОБНОВЛЕНИЯ
+function UIIndicators:Update(force)
+	CUIScriptWnd.Update(self)
+	local tg = time_global()
+	if force then self._tmr = tg - 1 end
+	if self._tmr >= tg then return else self._tmr = tg + 1000 end
+
+	self:Clear()
+	if not main_hud_shown() then return end
+
+	for name, t in spairs(indicators, func_index) do
+		local value = 0
+		
+		-- Безопасный вызов функтора без разрыва цикла
+		if t.functor and type(t.functor) == "table" then
+			local scr, fn = t.functor[1], t.functor[2]
+			if scr and fn and _G[scr] and type(_G[scr][fn]) == "function" then
+				local ok, res = pcall(_G[scr][fn], unpack(t.functor, 3))
+				if ok and type(res) == "number" then value = res end
+			end
+		end
+
+		local pass = false
+		if t.typ == "state" then
+			value = math.floor(value + 0.5) -- округляем до целого
+			pass = (value >= 1 and value <= 4)
+		elseif t.typ == "booster" then
+			pass = (value ~= nil and value > 0)
+		end
+
+		if pass then
+			local i = self.index + 1
+			if not self.slot[i] then break end -- защита от выхода за массив
+
+			-- Иконка
+			if t.icon then
+				local ico = (t.anim_period and t.typ == "booster" and value < t.anim_period) and self.slot[i].icon_f or (t.anim_icon and self.slot[i].icon_f or self.slot[i].icon_s)
+				ico:InitTexture(t.icon)
+				ico:Show(true)
+			end
+
+			-- Фон с цветом
+			if t.background then
+				local bk = (t.anim_period and t.typ == "booster" and value < t.anim_period) and self.slot[i].back_f or (t.anim_bk and self.slot[i].back_f or self.slot[i].back_s)
+				bk:InitTexture(t.background)
+				local clr_idx = (t.typ == "state") and value or 0
+				local color = self.clr_list[clr_idx] or self.clr_list[1] -- fallback на зелёный
+				bk:SetTextureColor(color)
+				bk:Show(true)
+			end
+			self.index = i
+		end
+	end
+	self.dialog:Show(self.index > 0)
+end
+
+----------------------------------
+--	Callbacks
+----------------------------------
+local function actor_on_first_update()
+	prepare_boosters_effect()
+	prepare_safe_zone()
+	activate_hud()
+end
+
+local function actor_on_update()
+	if not db.actor then return end
+	local tg = time_global()
+	if tg < tg_update then return end
+	tg_update = tg + tg_update_step
+	local cover_curr, cover_near, num = scan_safe_zone_old()
+	SetEvent("current_safe_cover", cover_curr)
+	SetEvent("nearest_safe_cover", cover_near)
+	scan_boosters_effect()
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+end

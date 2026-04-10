@@ -1,0 +1,521 @@
+--[[
+
+	Modified by Tronex
+	2020/3/26
+
+	Биндер объекта костра
+	--------------------------------------------
+	name your campfires in SDK <smart_name>_campfire_<number> if you want them to be lit by NPCs
+	
+	Интегрирована анимация зажигания спичками
+	
+--]]
+
+local k_rain = 0
+local dist_cf = 2 --[meters] distance to interact with campfire
+campfires_all = {}
+
+-- НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ВОССТАНОВЛЕНИЯ ЗДОРОВЬЯ
+local health_restore_delay = 5000  -- Задержка перед началом восстановления (мс)
+local health_restore_timer = 0     -- Таймер восстановления
+local is_health_restoring = false  -- Флаг восстановления здоровья
+
+-- ПЕРЕМЕННЫЕ ДЛЯ АНИМАЦИИ ЗАЖИГАНИЯ
+local anim_item = nil
+local active_slot = nil
+local det_active = nil
+local camp_obj = nil
+local cur_fov = nil
+local is_anim_playing = false
+local animation_timer = nil
+
+
+function get_nearby_campfire (dist, result)
+	local pos = db.actor:position()
+	for id,binder in pairs(campfires_all) do 
+		if (binder and binder.campfire) then
+			if (pos:distance_to_sqr(binder.object:position()) <= dist * dist) then
+				if (result == true) then
+					return binder.campfire
+				elseif (result == false) then
+					return binder.object
+				else
+					return true
+				end
+			end
+		end 
+	end 
+	return false
+end
+
+function get_campfire_binder_by_dist(dist)
+    local pos = db.actor:position()
+    for id, binder in pairs(campfires_all) do 
+        if (binder and binder.campfire) then
+            if (pos:distance_to_sqr(binder.object:position()) <= dist * dist) then
+                return binder
+            end
+        end 
+    end
+    return nil
+end
+
+-- НОВАЯ ФУНКЦИЯ: Проверяет нет ли ГОРЯЩИХ костров рядом
+function check_no_burning_campfire()
+    local pos = db.actor:position()
+    for id, binder in pairs(campfires_all) do 
+        if (binder and binder.campfire) then
+            local distance = pos:distance_to_sqr(binder.object:position())
+            if (distance <= 2.5 * 2.5) and binder.campfire:is_on() then
+                -- Есть горящий костер рядом - сохранения РАЗРЕШЕНЫ
+                return false
+            end
+        end 
+    end 
+    -- Нет горящих костров рядом - сохранения ЗАПРЕЩЕНЫ
+    return true
+end
+
+function turn_off_campfires_by_smart_name(smart_name,use_rand)
+	local smart_campfires = db.campfire_table_by_smart_names[smart_name]
+	if smart_campfires ~= nil and not is_empty(smart_campfires) then
+		for k,v in pairs (smart_campfires) do
+			if (math.random(100) < 20) then
+				if (v.campfire and v.campfire:is_on()) then
+					v.campfire:turn_off()
+				end
+			end
+		end
+	end
+end
+
+function rain_pass()
+	local rain = level.rain_factor()
+	if (rain ~= nil) and (rain > 0 and rain < 0.5) then
+		return (math.random(1,2) == 1)
+	elseif (rain > 0.5) then
+		return (math.random(1,3) == 1)
+	else
+		return true
+	end
+end
+
+----------------------------------------------------------------------------
+-- БЛОК АНИМАЦИИ ЗАЖИГАНИЯ КОСТРА
+----------------------------------------------------------------------------
+
+function play_ignite_animation(matches_obj, target_binder)
+    if is_anim_playing then
+        printf("[CAMPFIRE] Animation already playing")
+        return false
+    end
+    
+    if not matches_obj then
+        printf("[CAMPFIRE] No matches object")
+        return false
+    end
+    
+    camp_obj = matches_obj
+    is_anim_playing = true
+    
+    printf("[CAMPFIRE] Starting ignite animation")
+    
+    -- Блокируем управление
+    level.disable_input()
+    
+    -- Находим костер
+    local campfire_binder = target_binder or get_campfire_binder_by_dist(dist_cf)
+    if not campfire_binder then
+        printf("[CAMPFIRE] ERROR: No campfire found")
+        finish_animation(false)
+        return false
+    end
+    
+    -- Поворачиваем камеру на костер
+    local pos = campfire_binder.object:position()
+    pos.y = pos.y + 1.0
+    db.actor:actor_look_at_point(pos)
+    
+    -- Сохраняем состояние
+    active_slot = db.actor:active_slot()
+    cur_fov = get_console():get_float("hud_fov")
+    
+    -- Скрываем HUD и убираем оружие
+    get_hud():HideActorMenu()
+    db.actor:activate_slot(0)
+    
+    -- Отключаем детектор
+    det_active = db.actor:active_detector() or nil
+    if det_active then 
+        det_active:switch_state(2) 
+    end
+    
+    -- Ждем освобождения слота и запускаем анимацию
+    level.add_call(
+        function() 
+            return db.actor:active_slot() == 0 and not db.actor:active_detector() 
+        end, 
+        function()
+            printf("[CAMPFIRE] Slot cleared, playing animation")
+            
+            -- Устанавливаем FOV для анимации
+            get_console():execute("hud_fov 0.6")
+            
+            -- ЗАПУСК АНИМАЦИИ - используем конфиг tch_matches_fire_start_hud_anm
+            anim_item = "tch_matches_fire_start_hud_anm"
+            game.play_hud_motion(2, anim_item, "anm_show", false, 1)
+            
+            -- ПРОБУЕМ добавить эффект камеры без callback'а
+            -- Если эффект не нужен для работы анимации - можно закомментировать
+            pcall(function()
+                level.add_cam_effector("camera_effects\\weapon\\hand_ignit.anm", 9665, false, "")
+            end)
+            
+            -- Звук чирканья спичкой
+            sound_object("hud_matches\\hud_matches"):play_no_feedback(
+                db.actor, 
+                sound_object.s2d, 
+                0, 
+                vector():set(0,0,0), 
+                1.0, 
+                1.0
+            )
+            
+            -- Запускаем таймер на завершение анимации (примерно 3 секунды)
+            animation_timer = time_global() + 4000
+            
+            -- Добавляем проверку в actor_on_update
+        end
+    )
+    
+    return true
+end
+
+function check_animation_completion()
+    if not is_anim_playing then
+        return
+    end
+    
+    if animation_timer and time_global() >= animation_timer then
+        printf("[CAMPFIRE] Animation timer completed")
+        animation_timer = nil
+        
+        -- Зажигаем костер
+        if camp_obj then
+            local campfire_binder = get_campfire_binder_by_dist(dist_cf)
+            if campfire_binder and campfire_binder.campfire then
+                campfire_binder.campfire:turn_on()
+                start_health_restoration()
+                utils_item.discharge(camp_obj)
+                actor_menu.set_msg(1, "Костёр разожжен", 3)
+                printf("[CAMPFIRE] Campfire lit successfully")
+            else
+                printf("[CAMPFIRE] ERROR: No campfire at end of animation")
+            end
+        end
+        
+        finish_animation(true)
+    end
+end
+
+function finish_animation(success)
+    printf("[CAMPFIRE] Finishing animation, success=" .. tostring(success))
+    
+    -- Останавливаем HUD анимацию
+    pcall(function()
+        game.stop_hud_motion()
+    end)
+    
+    -- Восстанавливаем FOV
+    if cur_fov then
+        get_console():execute("hud_fov " .. cur_fov)
+    end
+    
+    -- Восстанавливаем слот
+    if active_slot then
+        db.actor:activate_slot(active_slot)
+    end
+    
+    -- Включаем детектор
+    if det_active then
+        det_active:switch_state(1)
+    end
+    
+    -- Сбрасываем переменные
+    anim_item = nil
+    active_slot = nil
+    camp_obj = nil
+    cur_fov = nil
+    det_active = nil
+    is_anim_playing = false
+    animation_timer = nil
+    
+    -- Включаем управление
+    level.enable_input()
+end
+
+----------------------------------------------------------------------------
+-- КОНЕЦ БЛОКА АНИМАЦИИ
+----------------------------------------------------------------------------
+
+function use_campfire(actor,zone,p) -- called from game_tutorials.xml
+    -- Если анимация уже играет, игнорируем
+    if is_anim_playing then
+        return
+    end
+    
+	local campfire_binder = get_campfire_binder_by_dist(dist_cf)
+	if not campfire_binder then
+		return
+	end
+	
+	if campfire_binder.campfire:is_on() then 
+		campfire_go_off(campfire_binder.campfire)
+	else
+		local matches = db.actor:object("matches") or db.actor:object("box_matches")
+		if matches then
+			-- Запускаем анимацию вместо обычного зажигания
+			play_ignite_animation(matches, campfire_binder)
+		else
+			actor_menu.set_msg(1, "Нужны спички", 3)
+		end
+	end
+end
+
+function start_health_restoration()
+    is_health_restoring = true
+    health_restore_timer = time_global() + health_restore_delay
+    printf("Health restoration will start in " .. health_restore_delay .. "ms")
+end
+
+function stop_health_restoration()
+    is_health_restoring = false
+    printf("Health restoration stopped")
+end
+
+function update_health_restoration()
+    if not is_health_restoring then return end
+    
+    local current_time = time_global()
+    if current_time < health_restore_timer then return end
+    
+    if not db.actor or not db.actor:alive() then 
+        stop_health_restoration()
+        return 
+    end
+    
+    local nearby_cf = get_nearby_campfire(2.5, true)
+    if not nearby_cf or not nearby_cf:is_on() then
+        stop_health_restoration()
+        return 
+    end
+    
+    local current_health = db.actor.health
+    if current_health >= 0.99 then
+        stop_health_restoration()
+        return
+    end
+    
+    local new_health = current_health + 0.05
+    if new_health > 1.0 then new_health = 1.0 end
+    
+    db.actor.health = new_health
+    health_restore_timer = current_time + 2000
+end
+
+function campfire_go_off(cf)
+	local cf = cf or get_nearby_campfire(dist_cf, true)
+	if cf and (cf:is_on()) then
+	    cf:turn_off()
+	    stop_health_restoration()
+	    actor_menu.set_msg(1, "Костёр потушен", 3)
+	end
+end
+
+function on_actor_use_object(obj)
+    if not obj or is_anim_playing then 
+        return 
+    end
+    
+    for id, binder in pairs(campfires_all) do
+        if binder and binder.object and binder.object:id() == obj:id() then
+            if binder.campfire:is_on() then
+                campfire_go_off(binder.campfire)
+            else
+                local matches = db.actor:object("matches") or db.actor:object("box_matches")
+                if matches then
+                    play_ignite_animation(matches, binder)
+                else
+                    actor_menu.set_msg(1, "Нужны спички", 3)
+                end
+            end
+            return
+        end
+    end
+end
+
+function update_campfire_tips()
+    for id, binder in pairs(campfires_all) do
+        if binder and binder.object and binder.campfire then
+            local distance = db.actor:position():distance_to(binder.object:position())
+            if distance <= dist_cf then
+                if binder.campfire:is_on() then
+                    binder.object:set_tip_text("Потушить костер")
+                else
+                    binder.object:set_tip_text("Разжечь костер")
+                end
+            else
+                binder.object:set_tip_text("")
+            end
+        end
+    end
+end
+
+----------------------------------------------------------------------------
+-- Callbacks
+----------------------------------------------------------------------------
+local tutorial_ran = 0
+
+local function save_state(m_data)
+	empty_table(m_data.campfire_states)
+	for smart,t in pairs(db.campfire_table_by_smart_names) do 
+		for id,binder in pairs(t) do 
+			if (binder and binder.campfire) then
+				if (binder.campfire:is_on()) then 
+					if not (m_data.campfire_states) then 
+						m_data.campfire_states = {}
+					end
+					m_data.campfire_states[id] = true
+				end
+			end
+		end
+	end
+end 
+
+local function on_before_save_input(flags, typ, text)
+    if (level_weathers.valid_levels[level.name()])
+    and check_no_burning_campfire()
+    then
+        local str = strformat("Нельзя сохраняться без горящего костра: %s", text)
+        actor_menu.set_msg(1, str, 4)
+        exec_console_cmd("main_menu off")
+        flags.ret = true
+    end
+end
+
+local function actor_on_update()
+	if not (db.actor) then 
+		return
+	end
+
+	update_campfire_tips()
+	update_health_restoration()
+	
+	-- Проверяем завершение анимации
+	check_animation_completion()
+
+	local pos = db.actor:position()
+	
+	for id,binder in pairs(campfires_all) do
+		if (binder and binder.campfire) then
+			if (pos:distance_to_sqr(binder.object:position()) <= dist_cf * dist_cf) then
+				if (not game.has_active_tutorial()) and not is_anim_playing then
+					tutorial_ran = id
+					if (binder.campfire:is_on()) then
+						game.start_tutorial("tutorial_campfire_extinguish")
+					else 
+						game.start_tutorial("tutorial_campfire_ignite")
+					end
+				end
+			elseif (tutorial_ran == id) then
+				tutorial_ran = 0
+				if (game.has_active_tutorial()) then
+					game.stop_tutorial()
+				end
+			end
+		end 
+	end
+end
+
+function on_game_start()
+	local function on_game_load()
+		RegisterScriptCallback("on_before_save_input", on_before_save_input)
+	end
+	
+	RegisterScriptCallback("on_game_load", on_game_load)
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+	RegisterScriptCallback("actor_on_use_object", on_actor_use_object)
+	
+	printf("[CAMPFIRE] System initialized with integrated animation")
+end
+
+----------------------------------------------------------------------------
+-- Class "campfire_binder"
+----------------------------------------------------------------------------
+function bind(obj)
+	obj:bind_object(campfire_binder(obj))
+end
+
+class "campfire_binder" (object_binder)
+
+function campfire_binder:__init(obj) super(obj)
+	self.campfire = obj:get_campfire()
+	if (USE_MARSHAL) then 
+		RegisterScriptCallback("save_state", save_state)
+	end
+end
+
+function campfire_binder:reload(section)
+	object_binder.reload(self, section)
+end
+
+function campfire_binder:reinit()
+	object_binder.reinit(self)
+end
+
+function campfire_binder:net_spawn(se_abstract)
+	if not object_binder.net_spawn(self, se_abstract) then
+		return false
+	end
+    
+    campfires_all[self.object:id()] = self
+
+	local id = self.object:id()
+	local m_data = alife_storage_manager.get_state()
+	if (m_data and m_data.campfire_states and m_data.campfire_states[id]) then 
+		m_data.campfire_states[id] = nil
+	else
+		if (self.campfire and self.campfire:is_on()) then
+			self.campfire:turn_off()
+		end
+	end
+	
+	local smart_name = string.gsub(self.object:name(), "_campfire_%d*", "")
+	if SIMBOARD.smarts_by_names[smart_name] then
+		if db.campfire_table_by_smart_names[smart_name] == nil then
+			db.campfire_table_by_smart_names[smart_name] = {}
+		end
+		db.campfire_table_by_smart_names[smart_name][id] = self
+	end
+	
+	printf("Campfire spawned: " .. tostring(self.object:name()) .. " ID: " .. id)
+	
+	return true
+end
+
+function campfire_binder:net_destroy(se_abstract)
+	local smart_name = string.gsub(self.object:name(), "_campfire_%d*", "")
+	if SIMBOARD.smarts_by_names[smart_name] then
+		if (db.campfire_table_by_smart_names[smart_name]) then 
+			db.campfire_table_by_smart_names[smart_name][self.object:id()] = nil
+		end
+	end
+	
+	campfires_all[self.object:id()] = nil
+	
+	object_binder.net_destroy(self)
+end 
+
+function campfire_binder:update(delta)
+	object_binder.update(self, delta)
+end
