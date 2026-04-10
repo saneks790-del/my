@@ -1,0 +1,35 @@
+local sprint_blocked = false
+local block_timer = 0
+
+function block_sprint()
+    if sprint_blocked then return end
+    sprint_blocked = true
+    block_timer = time_global()
+    
+    -- Агрессивная блокировка через постоянное скрытие оружия
+    printf("AGGRESSIVE SPRINT BLOCK ACTIVATED")
+end
+
+function unblock_sprint()
+    if not sprint_blocked then return end
+    sprint_blocked = false
+    printf("SPRINT BLOCK DEACTIVATED")
+end
+
+function check_sprint_block()
+    if not sprint_blocked then return end
+    
+    -- Постоянно применяем блокировку
+    db.actor:hide_weapon()
+    
+    -- Каждые 2 секунды пишем в лог
+    if time_global() - block_timer > 2000 then
+        printf("SPRINT STILL BLOCKED - Time: " .. time_global())
+        block_timer = time_global()
+    end
+end
+
+function on_game_start()
+    printf("AGGRESSIVE SPRINT BLOCKER LOADED")
+    RegisterScriptCallback("actor_on_update", check_sprint_block)
+end

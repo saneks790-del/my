@@ -1,0 +1,65 @@
+-- underground_manager.script
+
+local underground_manager = {}
+
+function underground_manager.net_spawn()
+    printf("[Underground Manager] Spawned")
+    
+    -- Сразу проверяем текущий уровень
+    this:check_level()
+    
+    -- Регистрируем обработчик смены уровня
+    level.add_level_changed_callback(function(prev, new)
+        timer.set(5000, function() 
+            this:check_level() 
+        end)
+    end)
+    
+    return true
+end
+
+function underground_manager.check_level()
+    local level_name = level.name()
+    printf("[Underground Manager] Checking level: " .. tostring(level_name))
+    
+    if level_name == "agroprom_underground" then
+        this:create_zones_agroprom()
+    elseif level_name == "lab_x18" then
+        this:create_zones_x18()
+    elseif level_name == "lab_x16" then
+        this:create_zones_x16()
+    end
+end
+
+function underground_manager.create_zones_agroprom()
+    if this.zones_created then return end
+    
+    alife():create("zone_radio", vector():set(145.5, -25.3, 189.2), 0, 0)
+    alife():create("zone_psy", vector():set(120.1, -30.5, 175.8), 0, 0)
+    
+    this.zones_created = true
+    printf("[Underground Manager] Agroprom zones created")
+end
+
+function underground_manager.create_zones_x18()
+    if this.zones_created then return end
+    
+    alife():create("zone_radio", vector():set(-45.2, -65.8, 12.3), 0, 0)
+    alife():create("zone_psy", vector():set(-32.1, -70.2, 8.7), 0, 0)
+    
+    this.zones_created = true
+    printf("[Underground Manager] X18 zones created")
+end
+
+function underground_manager.create_zones_x16()
+    if this.zones_created then return end
+    
+    alife():create("zone_radio", vector():set(85.1, -45.2, -12.8), 0, 0)
+    alife():create("zone_psy", vector():set(92.3, -42.1, -8.5), 0, 0)
+    
+    this.zones_created = true
+    printf("[Underground Manager] X16 zones created")
+end
+
+-- Регистрируем биндер
+xr_binder.add_to_registry("underground_manager", underground_manager)

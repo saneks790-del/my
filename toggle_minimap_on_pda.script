@@ -1,0 +1,87 @@
+local lastToggleTime = 0
+local debounceTime = 0.3 -- 300 milliseconds debounce time
+local minimapCheckTime = 1 -- 1 seconds to check and show minimap if not visible
+local minimapTimer = nil -- Timer to track the 1-second wait for showing the minimap
+
+function toggle_pda()
+    -- PDA Map
+    local pda3d = get_console_cmd(1, "g_3d_pda")
+    if not pda3d then return end
+
+    local pda_menu = ActorMenu.get_pda_menu()
+    toggle_mm(pda_menu:IsShown())
+end
+
+function toggle_mm(new_minimap_state)
+    local minimap_enabled = ui_options.get("video/hud/show_minimap")
+
+    if minimap_enabled == new_minimap_state then
+        return
+    end
+
+    ui_options.set("video/hud/show_minimap", new_minimap_state)
+    local maingameui = ActorMenu.get_maingame()
+
+    if maingameui and maingameui.UIZoneMap then
+        maingameui.UIZoneMap.disabled = not new_minimap_state
+        maingameui.UIMotionIcon:Show(new_minimap_state)
+    end
+end
+
+function show_minimap_after_delay()
+    local minimap_enabled = ui_options.get("video/hud/show_minimap")
+    if not minimap_enabled then
+        toggle_mm(true)
+    end
+end
+
+function on_key_press(key)
+    local minimap_enabled = ui_options.get("video/hud/show_minimap")
+    if minimap_enabled and key == DIK_keys.DIK_ESCAPE then return end
+
+    if key == DIK_keys.DIK_ESCAPE or dik_to_bind(key) == 51 then
+        local currentTime = os.clock()
+        if currentTime - lastToggleTime > debounceTime then
+            toggle_pda()
+            lastToggleTime = currentTime
+        end
+    end
+end
+
+-- Special case for map key
+function on_key_release(key)    
+    if dik_to_bind(key) == key_bindings.kCUSTOM20 then
+        local currentTime = os.clock()
+        if currentTime - lastToggleTime > debounceTime then
+            toggle_pda()
+            lastToggleTime = currentTime
+        end
+    end
+end
+
+function check_minimap_visibility()
+    local minimap_enabled = ui_options.get("video/hud/show_minimap")
+    local pda_menu = ActorMenu.get_pda_menu()
+    local pda_shown = pda_menu:IsShown()
+    
+    if not minimap_enabled and not pda_shown then
+        if not minimapTimer then
+            minimapTimer = os.clock() + minimapCheckTime
+        elseif os.clock() >= minimapTimer then
+            show_minimap_after_delay()
+            minimapTimer = nil
+        end
+    else
+        minimapTimer = nil
+    end
+end
+
+function actor_on_update()
+    check_minimap_visibility()
+end
+
+function on_game_start()
+    RegisterScriptCallback("on_key_press", on_key_press)
+    RegisterScriptCallback("on_key_release", on_key_release)
+    RegisterScriptCallback("actor_on_update", actor_on_update)
+end
